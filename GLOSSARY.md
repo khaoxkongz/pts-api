@@ -23,7 +23,7 @@ A recorded fact that a planner, or a JV on it, changed status, raised by the mod
 _Avoid_: Domain event, action
 
 **Outbox Event**:
-A workflow event waiting to be turned into notifications; saved together with the change itself and published afterwards.
+A workflow event waiting to be turned into notifications; saved right after the change itself, published at once, and retried until it is published or runs out of attempts.
 
 **Audit-only**:
 A workflow event type that is recorded but notifies nobody.
