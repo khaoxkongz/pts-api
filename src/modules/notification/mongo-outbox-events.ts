@@ -1,5 +1,3 @@
-import { type ClientSession } from "mongoose"
-
 import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
 
 import { type OutboxEvents } from "./publish-outbox-event.js"
@@ -8,15 +6,12 @@ import { type WorkflowEventPayload } from "./type.js"
 // Every write to an Outbox Event lives in this file (ADR-0003).
 
 /** Saves a pending Outbox Event for the Workflow Event and returns its id. */
-export async function createOutboxEvent(
-  event: WorkflowEventPayload,
-  options?: { session?: ClientSession }
-): Promise<string> {
+export async function createOutboxEvent(event: WorkflowEventPayload): Promise<string> {
   const outbox = await new WorkflowEventOutbox({
     eventId: event.eventId,
     eventType: event.eventType,
     payload: event,
-  }).save(options)
+  }).save()
 
   return outbox._id.toString()
 }

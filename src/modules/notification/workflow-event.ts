@@ -1,4 +1,3 @@
-import { type ClientSession } from "mongoose"
 import { v7 } from "uuid"
 
 import { AuditLog } from "@/models/audit-log.js"
@@ -142,11 +141,6 @@ export type WorkflowEvent =
         triggerAction: WorkflowEventTriggerAction
       }
     }
-
-export interface WorkflowEventDispatchContext {
-  /** The caller's transaction; the audit log and Outbox Event are saved inside it when given. */
-  session?: ClientSession | null
-}
 
 function getPlannerGmApproverAccountIds(planner: TPlanner) {
   return [
@@ -385,9 +379,7 @@ function mapToPayload(event: WorkflowEvent): WorkflowEventPayload {
 export class WorkflowEventDispatcher {
   constructor(private readonly publishOutboxEvent: (outboxId: string) => Promise<void>) {}
 
-  private async persistWorkflowEvent(event: WorkflowEventPayload, context?: WorkflowEventDispatchContext) {
-    const saveOptions = context?.session ? { session: context.session } : undefined
-
+  private async persistWorkflowEvent(event: WorkflowEventPayload) {
     await new AuditLog({
       eventId: event.eventId,
       eventType: event.eventType,
@@ -400,9 +392,9 @@ export class WorkflowEventDispatcher {
       fromStatuses: event.fromStatuses,
       toStatuses: event.toStatuses,
       metadata: event.metadata,
-    }).save(saveOptions)
+    }).save()
 
-    const outboxId = await createOutboxEvent(event, saveOptions)
+    const outboxId = await createOutboxEvent(event)
 
     queueMicrotask(async () => {
       try {
@@ -413,8 +405,8 @@ export class WorkflowEventDispatcher {
     })
   }
 
-  public async dispatch(event: WorkflowEvent, context?: WorkflowEventDispatchContext) {
+  public async dispatch(event: WorkflowEvent) {
     const payload = mapToPayload(event)
-    await this.persistWorkflowEvent(payload, context)
+    await this.persistWorkflowEvent(payload)
   }
 }
