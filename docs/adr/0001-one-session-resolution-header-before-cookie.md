@@ -1,0 +1,3 @@
+# One session resolution path; header token before signed cookie
+
+Routes used to declare two Elysia macros, `isAuth` (signed `auth` cookie) and `isAuthWithToken` (`x-authorized-token` header), and the notification stream and `requireRole` each carried their own copy of the Session → User lookup. Because the later macro's `{ user: null }` overwrote the earlier one's result, cookie-only requests got 401 on every route that declared both. We replaced this with a single `resolveSessionUser` in the auth module and a single `isAuth` macro that tries the header token first (dev tools, scripts) and then the signed cookie, so the precedence is written down in one place instead of depending on option key order. No known client relied on the old cookie-only 401.
