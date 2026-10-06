@@ -1,13 +1,15 @@
-import { describe, expect, it } from "vite-plus/test"
+import { describe, expect, it, vi } from "vite-plus/test"
 
 import { type StoredNotification } from "./dto.js"
 import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
 import {
+  type FindDueOptions,
   type NotificationStore,
   type OutboxEvents,
   type PushHub,
   createOutboxEventPublisher,
 } from "./publish-outbox-event.js"
+import { relayDueOutboxEvents } from "./relay-due-outbox-events.js"
 import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
@@ -80,11 +82,24 @@ interface FakeOutboxEvent {
   statusHistory: OutboxStatus[]
 }
 
+// The same rule as the Mongo adapter's lock filter.
+function isLockable(event: FakeOutboxEvent) {
+  return event.status === "PENDING" || event.status === "FAILED"
+}
+
 class FakeOutboxEvents implements OutboxEvents {
   public readonly events = new Map<string, FakeOutboxEvent>()
 
-  public addOutboxEvent(outboxId: string, payload: WorkflowEventPayload, status: OutboxStatus = "PENDING") {
-    this.events.set(outboxId, { status, payload, attempts: 0, lastError: "", statusHistory: [status] })
+  public addOutboxEvent(
+    outboxId: string,
+    payload: WorkflowEventPayload,
+    {
+      status = "PENDING",
+      attempts = 0,
+      lastError = "",
+    }: Partial<Pick<FakeOutboxEvent, "status" | "attempts" | "lastError">> = {}
+  ) {
+    this.events.set(outboxId, { status, payload, attempts, lastError, statusHistory: [status] })
   }
 
   public outboxEvent(outboxId: string) {
@@ -97,7 +112,7 @@ class FakeOutboxEvents implements OutboxEvents {
 
   public async lock(outboxId: string) {
     const event = this.events.get(outboxId)
-    if (!event || (event.status !== "PENDING" && event.status !== "FAILED")) {
+    if (!event || !isLockable(event)) {
       return null
     }
     this.transition(event, "PROCESSING")
@@ -116,6 +131,14 @@ class FakeOutboxEvents implements OutboxEvents {
     event.attempts += 1
     event.lastError = error instanceof Error ? error.message : String(error)
     this.transition(event, "FAILED")
+  }
+
+  // Insertion order stands in for creation time, so the first added is the oldest.
+  public async findDue({ maxAttempts, limit }: FindDueOptions) {
+    return [...this.events]
+      .filter(([, event]) => isLockable(event) && event.attempts < maxAttempts)
+      .slice(0, limit)
+      .map(([outboxId]) => outboxId)
   }
 
   private transition(event: FakeOutboxEvent, status: OutboxStatus) {
@@ -201,7 +224,9 @@ function setup(users: FixtureUser[]) {
     pushHub,
   })
 
-  return { recipientResolver, outbox, notifications, pushHub, publish }
+  const relay = (maxAttempts = 10) => relayDueOutboxEvents({ outbox, publish, maxAttempts, batchSize: 100 })
+
+  return { recipientResolver, outbox, notifications, pushHub, publish, relay }
 }
 
 function summarize(notifications: StoredNotification[]) {
@@ -318,7 +343,7 @@ describe("publishing an Outbox Event", () => {
 
     it.each(["PUBLISHED", "PROCESSING"] as const)("skips an event that is already %s", async (status) => {
       const { outbox, notifications, pushHub, publish } = setup(gaUsers)
-      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), status)
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), { status })
 
       await publish("outbox-1")
 
@@ -483,6 +508,133 @@ describe("publishing an Outbox Event", () => {
       expect(saved.find((n) => n.accountId === "finance-1")?.body).toBe(
         "แผนงาน Site visit Chiang Mai ดำเนินการเสร็จสิ้นแล้ว"
       )
+    })
+  })
+})
+
+describe("relaying due Outbox Events", () => {
+  const gaUsers: FixtureUser[] = [
+    { accountId: "ga-1", role: "GA" },
+    { accountId: "ga-2", role: "GA" },
+  ]
+
+  it("publishes a failed Outbox Event on the next tick, notifying its recipients and pushing a Live Push", async () => {
+    const { outbox, notifications, pushHub, relay } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), {
+      status: "FAILED",
+      attempts: 1,
+      lastError: "user directory unavailable",
+    })
+
+    await relay()
+
+    expect(summarize(notifications.savedNotifications())).toEqual([
+      { accountId: "ga-1", recipientKind: "GA", templateKey: "planner.created.ga" },
+      { accountId: "ga-2", recipientKind: "GA", templateKey: "planner.created.ga" },
+    ])
+    expect(pushHub.pushes.map((p) => p.accountId)).toEqual(["ga-1", "ga-2"])
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", lastError: "", attempts: 2 })
+  })
+
+  it("publishes a pending Outbox Event that was never published on the next tick", async () => {
+    const { outbox, notifications, pushHub, relay } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+    await relay()
+
+    expect(notifications.savedNotifications().map((n) => n.accountId)).toEqual(["ga-1", "ga-2"])
+    expect(pushHub.pushes.map((p) => p.accountId)).toEqual(["ga-1", "ga-2"])
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+      status: "PUBLISHED",
+      attempts: 1,
+      statusHistory: ["PENDING", "PROCESSING", "PUBLISHED"],
+    })
+  })
+
+  it("skips an Outbox Event whose attempts have reached the cap, leaving it failed with its last error", async () => {
+    const { outbox, notifications, pushHub, relay } = setup(gaUsers)
+    outbox.addOutboxEvent("at-cap", workflowEvent({ eventId: "event-1" }), {
+      status: "FAILED",
+      attempts: 3,
+      lastError: "user directory unavailable",
+    })
+    outbox.addOutboxEvent("below-cap", workflowEvent({ eventId: "event-2" }), {
+      status: "FAILED",
+      attempts: 2,
+      lastError: "user directory unavailable",
+    })
+
+    await relay(3)
+
+    expect(outbox.outboxEvent("at-cap")).toMatchObject({
+      status: "FAILED",
+      attempts: 3,
+      lastError: "user directory unavailable",
+      statusHistory: ["FAILED"],
+    })
+    expect(outbox.outboxEvent("below-cap")).toMatchObject({ status: "PUBLISHED", attempts: 3 })
+    expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-2"]))
+    expect(pushHub.pushes).toHaveLength(2)
+  })
+
+  it("doesn't republish a published Outbox Event", async () => {
+    const { outbox, notifications, pushHub, relay } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), {
+      status: "PUBLISHED",
+      attempts: 1,
+    })
+
+    await relay()
+
+    expect(notifications.savedNotifications()).toEqual([])
+    expect(pushHub.pushes).toEqual([])
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({ attempts: 1, statusHistory: ["PUBLISHED"] })
+  })
+
+  it("still publishes the other Outbox Events in a tick when one of them fails", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { outbox, notifications, pushHub, relay } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventId: "event-1" }))
+    outbox.addOutboxEvent("outbox-2", workflowEvent({ eventId: "event-2" }))
+    outbox.addOutboxEvent("outbox-3", workflowEvent({ eventId: "event-3" }))
+    // The oldest event is published first, so it is the one whose save fails.
+    notifications.failSaveAfter = 0
+
+    await relay()
+
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+      status: "FAILED",
+      attempts: 1,
+      lastError: "notification store unavailable",
+    })
+    expect(outbox.outboxEvent("outbox-2").status).toBe("PUBLISHED")
+    expect(outbox.outboxEvent("outbox-3").status).toBe("PUBLISHED")
+    expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-2", "event-3"]))
+    expect(pushHub.pushes).toHaveLength(4)
+    errorLog.mockRestore()
+  })
+
+  it("marks an Audit-only Outbox Event published without notifying anyone, and doesn't pick it up again", async () => {
+    const { outbox, notifications, pushHub, relay } = setup([...gaUsers, { accountId: "gm-1", role: "GM" }])
+    outbox.addOutboxEvent(
+      "outbox-1",
+      workflowEvent({
+        eventType: "GM_JV_APPROVED",
+        targetType: "JV",
+        fromStatuses: ["WAITING_JV_APPROVAL"],
+        toStatuses: ["WAITING_JV_APPROVAL"],
+        metadata: { documentId: "PL-001", plannerName: "Site visit Chiang Mai", gmApproverAccountIds: ["gm-1"] },
+      })
+    )
+
+    await relay()
+    await relay()
+
+    expect(notifications.savedNotifications()).toEqual([])
+    expect(pushHub.pushes).toEqual([])
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+      attempts: 1,
+      statusHistory: ["PENDING", "PROCESSING", "PUBLISHED"],
     })
   })
 })

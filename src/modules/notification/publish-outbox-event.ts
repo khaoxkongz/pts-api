@@ -9,6 +9,14 @@ export interface OutboxEvents {
   lock(outboxId: string): Promise<WorkflowEventPayload | null>
   markPublished(outboxId: string): Promise<void>
   markFailed(outboxId: string, error: unknown): Promise<void>
+  // Ids of Outbox Events that lock would take and whose attempts are below the cap, oldest first.
+  // Lock doesn't check the cap, so an explicit publish-by-id can still force an event that reached it.
+  findDue(options: FindDueOptions): Promise<string[]>
+}
+
+export interface FindDueOptions {
+  maxAttempts: number
+  limit: number
 }
 
 export interface NotificationStore {
