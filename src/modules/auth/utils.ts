@@ -40,6 +40,26 @@ export function verifySignedToken(signedToken: string, secret: string): string |
   return token
 }
 
+export interface SessionCredentials {
+  rawToken?: string | null
+  signedCookie?: string | null
+}
+
+/**
+ * เลือก session token ที่จะใช้ค้นหา session (ADR-0001)
+ */
+export function sessionTokenFrom(credentials: SessionCredentials, secret: string): string | null {
+  if (credentials.rawToken) {
+    return credentials.rawToken
+  }
+
+  if (!credentials.signedCookie) {
+    return null
+  }
+
+  return verifySignedToken(credentials.signedCookie, secret)
+}
+
 /**
  * สร้าง signed token (token.signature)
  */

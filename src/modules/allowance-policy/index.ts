@@ -32,7 +32,6 @@ export const allowancePolicy = new Elysia({ prefix: "/allowance/policies" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       query: AllowancePolicyModel.queriesAllowancePolicies,
       response: {
@@ -89,7 +88,6 @@ export const allowancePolicy = new Elysia({ prefix: "/allowance/policies" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       body: AllowancePolicyModel.createAllowancePolicyInput,
       response: {
@@ -134,7 +132,6 @@ export const allowancePolicy = new Elysia({ prefix: "/allowance/policies" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       params: t.Object({ id: t.String() }),
       body: AllowancePolicyModel.patchAllowancePolicyInput,
@@ -175,7 +172,6 @@ export const allowancePolicy = new Elysia({ prefix: "/allowance/policies" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       params: t.Object({ id: t.String() }),
       response: {
@@ -240,7 +236,6 @@ export const allowancePolicy = new Elysia({ prefix: "/allowance/policies" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       body: AllowancePolicyModel.migrateAllowancePolicyYearInput,
       response: {
@@ -275,7 +270,6 @@ export const allowancePolicy = new Elysia({ prefix: "/allowance/policies" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       response: {
         200: AllowancePolicyModel.allowancePolicySuccess,

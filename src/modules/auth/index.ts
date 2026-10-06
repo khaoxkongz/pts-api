@@ -317,7 +317,6 @@ export const auth = new Elysia({ prefix: "/auth" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       response: {
         200: t.Object({
           status: t.Number({ examples: 200 }),
@@ -392,7 +391,6 @@ export const auth = new Elysia({ prefix: "/auth" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       cookie: t.Cookie({
         auth: t.Optional(t.String()),
       }),

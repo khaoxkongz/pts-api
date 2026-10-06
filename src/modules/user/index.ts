@@ -29,7 +29,6 @@ export const userRA = new Elysia({ prefix: "/users/ra" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: t.Object({
         q: t.Optional(t.String({ description: "ค้นหาที่อยู่ของแผนงานที่ต้องการดูข้อมูล" })),
         cursor: t.Optional(t.String()),

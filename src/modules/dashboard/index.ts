@@ -45,7 +45,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.queryFilters,
       detail: {
         description: "endpoint สำหรับข้อมูลจำนวนแผนงาน",
@@ -89,7 +88,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.actualCostSummaryQuery,
       detail: {
         description: "endpoint สำหรับข้อมูลต้นทุนจริงของทุกแผนงาน",
@@ -137,7 +135,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.actualCostSummaryQuery,
       detail: {
         description: "endpoint สำหรับข้อมูลต้นทุนจริงต่อประเภทค่าใช้จ่าย",
@@ -185,7 +182,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.actualCostSummaryQuery,
       detail: {
         description: "endpoint สำหรับข้อมูลกราฟค่าใช้จ่ายจริง",
@@ -229,7 +225,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.actualCostSummaryQuery,
       detail: {
         description: "endpoint สำหรับข้อมูลค่าใช้จ่ายจริงต่อแผนงาน",
@@ -264,7 +259,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       params: t.Object({
         documentId: t.String(),
       }),
@@ -294,7 +288,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: t.Object({
         accountId: t.Optional(t.String()),
         role: t.Optional(t.String()),
@@ -345,7 +338,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.filterYearsQuery,
       detail: {
         description: "endpoint สำหรับข้อมูลตัวกรองกราฟ",
@@ -393,7 +385,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: "summaryQuery",
       detail: {
         description: "ดึงข้อมูลสรุป dashboard ความคุ้มค่า",
@@ -441,7 +432,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: "detailsQuery",
       detail: {
         description: "ดึงรายการแผนงานรายหมวดสำหรับ modal ใน dashboard ความคุ้มค่า",
@@ -490,7 +480,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: "monthlyWorthyQuery",
       detail: {
         description: "ดึงข้อมูลแผนงานคุ้มค่า (WORTHY) รายเดือน สำหรับ Bar Chart",
@@ -539,7 +528,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.topLocationsQuery,
       detail: { description: "ดึง Top 5 สถานที่ Onsite ที่ไปบ่อยที่สุด สำหรับ Widget", tags: ["Dashboard"] },
     }
@@ -585,7 +573,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.locationPlansQuery,
       detail: {
         description: "ดึงรายการสถานที่ทั้งหมด + แผนงานของสถานที่ที่เลือก สำหรับ Modal",
@@ -634,7 +621,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: Model.topJvCostsQuery,
       detail: { description: "ดึง Top 5 JV ที่มี Actual Cost สูงสุด สำหรับ Widget", tags: ["Dashboard"] },
     }
@@ -680,7 +666,6 @@ export const dashboard = new Elysia({ prefix: "/dashboard" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: "jvPlansQuery",
       detail: {
         description: "ดึงรายชื่อแผนงานทั้งหมดที่เกี่ยวข้องกับ JV ที่เลือก พร้อมยอด Actual Cost",

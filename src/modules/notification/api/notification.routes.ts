@@ -1,14 +1,14 @@
 import { Elysia } from "elysia"
 
+import { resolveSessionUser } from "@/modules/auth/service.js"
 import { session } from "@/plugins/session.js"
 
 import { type PushHub } from "../core/ports/push-hub.port.js"
 import { Inbox } from "../inbox.js"
-import { type streamAuthService } from "../use-cases/services/stream-auth.service.js"
 import { NotificationSchema } from "./notification.schema.js"
+import { streamRawToken } from "./stream-token.js"
 
 export interface NotificationRoutesDeps {
-  streamAuthService: ReturnType<typeof streamAuthService>
   pushHub: PushHub
 }
 
@@ -34,7 +34,6 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         query: NotificationSchema.notificationListQuery,
         detail: {
           description: "ใช้สำหรับดูข้อมูลของการแจ้งเตือน",
@@ -56,7 +55,6 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         detail: {
           description: "ใช้สำหรับดูจำนวนการแจ้งเตือนที่ยังไม่ได้อ่าน",
           tags: ["Notification"],
@@ -81,7 +79,6 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         params: NotificationSchema.notificationIdParams,
         detail: {
           description: "ใช้สำหรับทำเครื่องหมายว่าอ่านแล้ว",
@@ -103,7 +100,6 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         detail: {
           description: "ใช้สำหรับทำเครื่องหมายว่าอ่านแล้วทั้งหมด",
           tags: ["Notification"],
@@ -114,14 +110,11 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
     .get(
       "/stream",
       async ({ headers, cookie, query, status }) => {
-        const headerToken = typeof headers["x-authorized-token"] === "string" ? headers["x-authorized-token"] : null
-        const bearerToken =
-          typeof headers["authorization"] === "string" ? headers["authorization"].replace(/^Bearer\s+/i, "") : null
-        const queryToken = typeof query.token === "string" ? query.token : null
-        const rawToken = headerToken || bearerToken || queryToken
-        const signedToken = typeof cookie["auth"]?.value === "string" ? cookie["auth"].value : null
-
-        const user = await deps.streamAuthService.resolveUser({ rawToken, signedToken })
+        const resolved = await resolveSessionUser({
+          rawToken: streamRawToken(headers, query),
+          signedCookie: cookie.auth?.value as string | undefined,
+        })
+        const user = resolved?.user
 
         if (!user) {
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })

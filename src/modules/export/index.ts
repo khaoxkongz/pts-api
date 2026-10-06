@@ -46,7 +46,6 @@ export const exportModule = new Elysia({ prefix: "/export" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       body: t.Object({
         filter: queriesExportPlanner,
         columns: t.Optional(exportColumnProjection),
