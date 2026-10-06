@@ -3,8 +3,8 @@ import { v7 } from "uuid"
 
 import { AuditLog } from "@/models/audit-log.js"
 import { type TPlanner } from "@/models/planner.js"
-import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
 
+import { createOutboxEvent } from "./mongo-outbox-events.js"
 import { type WorkflowEventMetadata, type WorkflowEventPayload } from "./type.js"
 
 type WorkflowEventTriggerAction = "EMP_SUMMARY_DONE" | "GA_ACTUAL_DONE" | "ALLOWANCE_RESOLVED"
@@ -402,15 +402,11 @@ export class WorkflowEventDispatcher {
       metadata: event.metadata,
     }).save(saveOptions)
 
-    const outbox = await new WorkflowEventOutbox({
-      eventId: event.eventId,
-      eventType: event.eventType,
-      payload: event,
-    }).save(saveOptions)
+    const outboxId = await createOutboxEvent(event, saveOptions)
 
     queueMicrotask(async () => {
       try {
-        await this.publishOutboxEvent(outbox._id.toString())
+        await this.publishOutboxEvent(outboxId)
       } catch (error) {
         console.error("Failed to publish workflow event outbox", error)
       }
