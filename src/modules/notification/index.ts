@@ -7,7 +7,6 @@ import { session } from "@/plugins/session.js"
 import { Inbox } from "./inbox.js"
 import { NotificationSchema } from "./model.js"
 import { pushHub } from "./runtime.js"
-import { streamRawToken } from "./stream-token.js"
 
 export const notification = new Elysia({ name: "notification-module", prefix: "/notifications" })
   .use(session)
@@ -106,10 +105,7 @@ export const notification = new Elysia({ name: "notification-module", prefix: "/
   .get(
     "/stream",
     async ({ headers, cookie, query, status }) => {
-      const resolved = await resolveSessionUser({
-        ...requestSessionCredentials({ headers, cookie }),
-        rawToken: streamRawToken(headers, query),
-      })
+      const resolved = await resolveSessionUser(requestSessionCredentials({ headers, cookie, queryToken: query.token }))
       const user = resolved?.user
 
       if (!user) {

@@ -2,6 +2,7 @@ import { cors as elysiaCors } from "@elysiajs/cors"
 import { Elysia } from "elysia"
 
 import env from "@/env.js"
+import { SESSION_TOKEN_HEADER } from "@/modules/auth/utils.js"
 
 export const cors = new Elysia()
   .use(
@@ -10,7 +11,7 @@ export const cors = new Elysia()
       origin: env.ALLOWED_ORIGINS.split(","),
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       credentials: true,
-      allowedHeaders: ["Content-Type", "Authorization", "x-authorized-token"],
+      allowedHeaders: ["Content-Type", "Authorization", SESSION_TOKEN_HEADER],
       maxAge: 86_400,
     })
   )

@@ -1,3 +1,4 @@
+import { recipientTargets } from "./recipient-targets.js"
 import { notificationRulesConfig } from "./rules.js"
 import {
   type NotificationContentVariant,
@@ -14,11 +15,13 @@ export interface ResolvedRecipient {
   kind: RecipientKind
 }
 
-export type RecipientRole = "GA" | "PLANNER" | "FINANCE"
+// The Recipient Kinds that mean "notified because the account holds that role".
+export type RecipientRole = Extract<RecipientKind, "GA" | "PLANNER" | "FINANCE">
 
 export interface RecipientResolver {
   resolveAccountRecipients(accountIds: string[], kind: RecipientKind): Promise<ResolvedRecipient[]>
-  resolveRoleRecipients(role: RecipientRole, kind: RecipientKind): Promise<ResolvedRecipient[]>
+  // Resolves every account holding `role`; each recipient's Recipient Kind is that role.
+  resolveRoleRecipients(role: RecipientRole): Promise<ResolvedRecipient[]>
   resolveSupervisorRecipients(subordinateEmployeeIds: string[]): Promise<ResolvedRecipient[]>
 }
 
@@ -67,77 +70,8 @@ function includesNone(statuses: string[], blocked?: string[]) {
 }
 
 async function resolveTargets(event: WorkflowEventPayload, targets: RecipientTarget[], recipients: RecipientResolver) {
-  const groups = await Promise.all(targets.map((target) => resolveTarget(event, target, recipients)))
+  const groups = await Promise.all(targets.map((target) => recipientTargets[target].resolve(event, recipients)))
   return groups.flat()
-}
-
-async function resolveTarget(
-  event: WorkflowEventPayload,
-  target: RecipientTarget,
-  recipients: RecipientResolver
-): Promise<ResolvedRecipient[]> {
-  switch (target) {
-    case "ROLE:GA": {
-      return await recipients.resolveRoleRecipients("GA", "GA")
-    }
-    case "ROLE:PLANNER": {
-      return await recipients.resolveRoleRecipients("PLANNER", "PLANNER")
-    }
-    case "ROLE:FINANCE": {
-      return await recipients.resolveRoleRecipients("FINANCE", "FINANCE")
-    }
-    case "SUPERVISOR": {
-      const creatorIds = event.metadata.creatorEmployeeIds ?? []
-      const participantIds = event.metadata.participantEmployeeIds ?? []
-      const allEmployeeIds = [...new Set([...creatorIds, ...participantIds])]
-      return await recipients.resolveSupervisorRecipients(allEmployeeIds)
-    }
-    case "CREATOR": {
-      return await recipients.resolveAccountRecipients(
-        event.metadata.creatorAccountId ? [event.metadata.creatorAccountId] : [],
-        "EMPLOYEE"
-      )
-    }
-    case "GM_APPROVERS": {
-      return await recipients.resolveAccountRecipients(event.metadata.gmApproverAccountIds ?? [], "GM_APPROVER")
-    }
-    case "RESET_APPROVERS": {
-      return await recipients.resolveAccountRecipients(event.metadata.resetApproverAccountIds ?? [], "GM_APPROVER")
-    }
-    case "PLANNER_MEMBERS": {
-      return await recipients.resolveAccountRecipients(event.metadata.participantAccountIds ?? [], "EMPLOYEE")
-    }
-    case "AFFECTED_EMPLOYEE": {
-      return await recipients.resolveAccountRecipients(
-        event.metadata.affectedParticipantAccountId ? [event.metadata.affectedParticipantAccountId] : [],
-        "EMPLOYEE"
-      )
-    }
-    case "CANCELLATION_AUDIENCE": {
-      const groups = await Promise.all([
-        recipients.resolveAccountRecipients(
-          [event.metadata.creatorAccountId, ...(event.metadata.participantAccountIds ?? [])].filter(
-            (accountId): accountId is string => Boolean(accountId)
-          ),
-          "EMPLOYEE"
-        ),
-        event.metadata.notifyGa ? recipients.resolveRoleRecipients("GA", "GA") : Promise.resolve([]),
-        event.metadata.notifyGm
-          ? recipients.resolveAccountRecipients(event.metadata.gmApproverAccountIds ?? [], "GM_APPROVER")
-          : Promise.resolve([]),
-      ])
-
-      const unique = new Map<string, ResolvedRecipient>()
-      for (const recipient of groups.flat()) {
-        unique.set(`${recipient.kind}:${recipient.accountId}`, recipient)
-      }
-      return [...unique.values()]
-    }
-    default: {
-      const exhaustiveTarget: never = target
-      throw new Error(`Unsupported recipient target: ${String(exhaustiveTarget)}`)
-    }
-  }
 }
 
 function buildResolvedNotification(

@@ -49,6 +49,77 @@ describe("session token precedence", () => {
   })
 })
 
+describe("session token precedence on the notification stream (opted in to ?token=)", () => {
+  it("uses the x-authorized-token header", () => {
+    const credentials = requestSessionCredentials({
+      headers: { "x-authorized-token": "header-token" },
+      cookie: {},
+      queryToken: undefined,
+    })
+
+    expect(sessionTokenFrom(credentials, SECRET)).toBe("header-token")
+  })
+
+  it("uses the ?token= query token when no header is sent, since EventSource cannot send headers", () => {
+    const credentials = requestSessionCredentials({ headers: {}, cookie: {}, queryToken: "query-token" })
+
+    expect(sessionTokenFrom(credentials, SECRET)).toBe("query-token")
+  })
+
+  it("prefers the header over the ?token= query token when both are sent", () => {
+    const credentials = requestSessionCredentials({
+      headers: { "x-authorized-token": "header-token" },
+      cookie: {},
+      queryToken: "query-token",
+    })
+
+    expect(sessionTokenFrom(credentials, SECRET)).toBe("header-token")
+  })
+
+  it("keeps an empty header instead of falling back to the ?token= query token or the cookie", () => {
+    const { signedToken } = createSignedToken(SECRET)
+    const credentials = requestSessionCredentials({
+      headers: { "x-authorized-token": "" },
+      cookie: { auth: { value: signedToken } },
+      queryToken: "query-token",
+    })
+
+    expect(sessionTokenFrom(credentials, SECRET)).toBeNull()
+  })
+
+  it("uses the signed cookie when neither a header nor a query token is sent", () => {
+    const { token, signedToken } = createSignedToken(SECRET)
+    const credentials = requestSessionCredentials({
+      headers: {},
+      cookie: { auth: { value: signedToken } },
+      queryToken: undefined,
+    })
+
+    expect(sessionTokenFrom(credentials, SECRET)).toBe(token)
+  })
+
+  it("does not accept an Authorization: Bearer token", () => {
+    const credentials = requestSessionCredentials({
+      headers: { authorization: "Bearer bearer-token" },
+      cookie: {},
+      queryToken: undefined,
+    })
+
+    expect(sessionTokenFrom(credentials, SECRET)).toBeNull()
+  })
+})
+
+describe("session token precedence on routes not opted in to ?token=", () => {
+  it("ignores a token query parameter and keeps using the cookie", () => {
+    const { token, signedToken } = createSignedToken(SECRET)
+    // Shaped like a route context: the query is there, but no queryToken is passed.
+    const request = { headers: {}, cookie: { auth: { value: signedToken } }, query: { token: "query-token" } }
+
+    expect(sessionTokenFrom(requestSessionCredentials(request), SECRET)).toBe(token)
+    expect(sessionTokenFrom(requestSessionCredentials({ ...request, cookie: {} }), SECRET)).toBeNull()
+  })
+})
+
 describe("session credentials of a request", () => {
   it("takes the raw token from x-authorized-token and the signed token from the auth cookie", () => {
     const credentials = requestSessionCredentials({

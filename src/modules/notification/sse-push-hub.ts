@@ -1,105 +1,54 @@
-import { type ReadableStreamController } from "node:stream/web"
-
 import { type PushHub } from "./publish-outbox-event.js"
 
-interface Subscriber {
-  close: () => void
-  send: (event: string, data: unknown) => void
+type Send = (event: string, data: unknown) => void
+
+const HEARTBEAT_INTERVAL_MS = 20_000
+
+const encoder = new TextEncoder()
+
+function formatSseEvent(event: string, data: unknown) {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
 export class SsePushHub implements PushHub {
-  private readonly encoder = new TextEncoder()
-  private readonly subscribers = new Map<string, Set<Subscriber>>()
-
-  public static formatSseEvent(event: string, data: unknown) {
-    return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-  }
-
-  private addSubscriber(accountId: string, subscriber: Subscriber) {
-    const existing = this.subscribers.get(accountId)
-    if (existing) {
-      existing.add(subscriber)
-      return
-    }
-
-    this.subscribers.set(accountId, new Set([subscriber]))
-  }
-
-  private removeSubscriber(accountId: string, subscriber: Subscriber) {
-    const existing = this.subscribers.get(accountId)
-    if (!existing) {
-      return
-    }
-
-    existing.delete(subscriber)
-    if (existing.size === 0) {
-      this.subscribers.delete(accountId)
-    }
-  }
-
-  private createSseSubscriber(controller: ReadableStreamController<Uint8Array>, cleanup: () => void): Subscriber {
-    return {
-      send: (event: string, data: unknown) => {
-        controller.enqueue(this.encoder.encode(SsePushHub.formatSseEvent(event, data)))
-      },
-      close: () => {
-        cleanup()
-      },
-    }
-  }
+  private readonly sendsByAccount = new Map<string, Set<Send>>()
 
   public push(accountId: string, event: string, payload: unknown) {
-    const listeners = this.subscribers.get(accountId)
-    if (!listeners || listeners.size === 0) {
-      return
-    }
-
-    for (const listener of listeners) {
-      listener.send(event, payload)
+    for (const send of this.sendsByAccount.get(accountId) ?? []) {
+      send(event, payload)
     }
   }
 
   public createStreamResponse(accountId: string) {
-    let cleanup = (_isCancel?: boolean) => {}
+    let stop = () => {}
 
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
-        let closed = false
-        let heartbeat: ReturnType<typeof setInterval> | null = null
-        let subscriber: Subscriber | null = null
+        const send: Send = (event, data) => {
+          controller.enqueue(encoder.encode(formatSseEvent(event, data)))
+        }
+        const heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(": ping\n\n"))
+        }, HEARTBEAT_INTERVAL_MS)
 
-        cleanup = (isCancel = false) => {
-          if (closed) {
-            return
-          }
+        const sends = this.sendsByAccount.get(accountId) ?? new Set<Send>()
+        sends.add(send)
+        this.sendsByAccount.set(accountId, sends)
 
-          closed = true
-          if (heartbeat) {
-            clearInterval(heartbeat)
-          }
-          if (subscriber) {
-            this.removeSubscriber(accountId, subscriber)
-          }
-          if (!isCancel) {
-            controller.close()
+        // Safe to call more than once. Drops the account only while its stored set is this one, so a stale
+        // stop never removes a set a newer stream created after this one emptied.
+        stop = () => {
+          clearInterval(heartbeat)
+          sends.delete(send)
+          if (sends.size === 0 && this.sendsByAccount.get(accountId) === sends) {
+            this.sendsByAccount.delete(accountId)
           }
         }
 
-        subscriber = this.createSseSubscriber(controller, () => cleanup())
-
-        heartbeat = setInterval(() => {
-          if (closed) {
-            return
-          }
-
-          controller.enqueue(this.encoder.encode(": ping\n\n"))
-        }, 20_000)
-
-        this.addSubscriber(accountId, subscriber)
-        subscriber.send("connected", { connected: true })
+        send("connected", { connected: true })
       },
       cancel: () => {
-        cleanup(true)
+        stop()
       },
     })
 

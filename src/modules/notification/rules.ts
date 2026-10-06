@@ -1,23 +1,11 @@
+import { recipientTargets } from "./recipient-targets.js"
 import { type NotificationRulesConfig, type RecipientKind, type RecipientTarget } from "./type.js"
-
-const recipientKindsByTarget: Record<RecipientTarget, RecipientKind[]> = {
-  "ROLE:GA": ["GA"],
-  "ROLE:PLANNER": ["PLANNER"],
-  "ROLE:FINANCE": ["FINANCE"],
-  SUPERVISOR: ["SUPERVISOR"],
-  CREATOR: ["EMPLOYEE"],
-  PLANNER_MEMBERS: ["EMPLOYEE"],
-  GM_APPROVERS: ["GM_APPROVER"],
-  RESET_APPROVERS: ["GM_APPROVER"],
-  AFFECTED_EMPLOYEE: ["EMPLOYEE"],
-  CANCELLATION_AUDIENCE: ["EMPLOYEE", "GA", "GM_APPROVER"],
-}
 
 function getPossibleRecipientKinds(targets: RecipientTarget[]) {
   const kinds = new Set<RecipientKind>()
 
   for (const target of targets) {
-    for (const kind of recipientKindsByTarget[target]) {
+    for (const kind of recipientTargets[target].kinds) {
       kinds.add(kind)
     }
   }
