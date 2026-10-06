@@ -25,7 +25,7 @@ export interface PublishOutboxEventDeps {
   pushHub: PushHub
 }
 
-export function publishOutboxEventCommand(deps: PublishOutboxEventDeps) {
+export function createOutboxEventPublisher(deps: PublishOutboxEventDeps) {
   return async function execute(outboxId: string): Promise<void> {
     const event = await deps.delivery.lockOutboxEventAndGetWorkflowEvent(outboxId)
     if (!event) {

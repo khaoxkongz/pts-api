@@ -9,7 +9,7 @@ function notificationKey(notification: { accountId: string; recipientKind: strin
   return `${notification.accountId}|${notification.recipientKind}`
 }
 
-export const MongoNotificationDeliveryRepository: NotificationDelivery = {
+export const MongoNotificationDelivery: NotificationDelivery = {
   async lockOutboxEventAndGetWorkflowEvent(outboxId: string) {
     const outbox = await WorkflowEventOutbox.findOneAndUpdate(
       {

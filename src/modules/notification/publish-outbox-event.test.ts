@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test"
 
 import { type StoredNotification } from "./dto.js"
 import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
-import { type NotificationDelivery, type PushHub, publishOutboxEventCommand } from "./publish-outbox-event.js"
+import { type NotificationDelivery, type PushHub, createOutboxEventPublisher } from "./publish-outbox-event.js"
 import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
@@ -185,7 +185,7 @@ function setup(users: FixtureUser[]) {
   const recipientResolver = new FakeRecipientResolver(users)
   const delivery = new FakeNotificationDelivery()
   const pushHub = new RecordingPushHub()
-  const publish = publishOutboxEventCommand({
+  const publish = createOutboxEventPublisher({
     delivery,
     recipients: recipientResolver,
     pushHub,
