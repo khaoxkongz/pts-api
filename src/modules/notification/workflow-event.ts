@@ -180,6 +180,11 @@ interface EventSpecificFields {
   /** Defaults to the planner's document id. */
   targetId?: string
   metadata?: EventSpecificMetadata
+  /**
+   * Metadata stored after the participant ids. Only PLANNER_CANCELLED uses it, so that its stored payload keeps
+   * the key order it has always had.
+   */
+  metadataAfterParticipants?: EventSpecificMetadata
 }
 
 function plannersOf(event: WorkflowEvent): { plannerBefore: TPlanner | null; plannerAfter: TPlanner } {
@@ -213,6 +218,7 @@ function plannerEventPayload(event: WorkflowEvent, fields: EventSpecificFields =
       ...fields.metadata,
       participantAccountIds: getParticipantAccountIds(plannerAfter),
       participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
+      ...fields.metadataAfterParticipants,
     },
   }
 }
@@ -362,6 +368,8 @@ function mapToPayload(event: WorkflowEvent): WorkflowEventPayload {
           creatorAccountId: plannerAfter.createdBy,
           creatorEmployeeIds: plannerAfter.createdByEmployeeId.map(String),
           gmApproverAccountIds: getPlannerGmApproverAccountIds(plannerAfter),
+        },
+        metadataAfterParticipants: {
           cancellationReason: event.meta.reason,
           notifyGa: event.meta.notifyGa,
           notifyGm: event.meta.notifyGm,

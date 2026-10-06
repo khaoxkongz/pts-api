@@ -46,22 +46,29 @@ function planner(fields: Record<string, unknown>): TPlanner {
   }).toObject()
 }
 
+// The planner before the change has its own identity, creator, participants and GM approvers, so a test fails
+// whenever the payload reads any of them from the wrong planner.
 const plannerBefore = planner({
+  documentId: "PL-001-BEFORE",
+  name: "Site visit Chiang Mai (before)",
+  createdBy: "acc-creator-before",
+  createdByEmployeeId: ["EMP-C-BEFORE"],
   status: ["WAITING_JV_APPROVAL"],
+  participants: [{ accountId: "acc-emp-before", employeeId: ["EMP-BEFORE"] }],
   jvs: [
     {
       taxId: "JV-A",
       status: "WAITING_JV_APPROVAL",
       percentageRatio: 60,
       expenseRatio: 50,
-      approversList: [{ accountId: "acc-gm-a" }, { accountId: "acc-gm-b" }],
+      approversList: [{ accountId: "acc-gm-before" }],
     },
     {
       taxId: "JV-B",
       status: "WAITING_JV_APPROVAL",
       percentageRatio: 40,
       expenseRatio: 50,
-      approversList: [{ accountId: "acc-gm-b" }, { accountId: "acc-gm-c" }],
+      approversList: [{ accountId: "acc-gm-before" }],
     },
   ],
 })
@@ -105,9 +112,6 @@ const participants = {
 }
 
 async function storedPayload(event: WorkflowEvent): Promise<WorkflowEventPayload> {
-  stored.auditLogs.length = 0
-  stored.outboxEvents.length = 0
-
   await new WorkflowEventDispatcher(async () => {}).dispatch(event)
 
   expect(stored.outboxEvents).toHaveLength(1)
@@ -119,20 +123,43 @@ async function storedPayload(event: WorkflowEvent): Promise<WorkflowEventPayload
   return payload
 }
 
-describe("WorkflowEventDispatcher stored payloads", () => {
+// The Outbox Event payload and the audit log metadata are stored as Mongo Mixed fields, which keep key order,
+// so the order is pinned along with the values.
+function expectStoredPayload(payload: WorkflowEventPayload, expected: WorkflowEventPayload) {
+  expect(payload).toStrictEqual(expected)
+  expect(Object.keys(payload)).toEqual(Object.keys(expected))
+  expect(Object.keys(payload.metadata)).toEqual(Object.keys(expected.metadata))
+}
+
+const allowanceClaims = [
+  { type: "ALLOWANCE_CLAIM_CANCELLED", claim: "cancelled" },
+  { type: "ALLOWANCE_CLAIM_REJECTED", claim: "rejected" },
+] as const
+
+function allowanceClaimMeta(transactionId: string) {
+  return {
+    actorAccountId: "acc-system",
+    affectedParticipantAccountId: "acc-emp-2",
+    affectedParticipantEmployeeId: "EMP-2",
+    transactionId,
+    pendingConfirmExpireAt: new Date("2026-08-23T00:00:00.000Z"),
+  }
+}
+
+describe("the payload stored for a Workflow Event", () => {
   beforeEach(() => {
     stored.auditLogs.length = 0
     stored.outboxEvents.length = 0
   })
 
-  it("PLANNER_CREATED has no previous statuses", async () => {
+  it("for a created planner has no statuses before the change", async () => {
     const payload = await storedPayload({
       type: "PLANNER_CREATED",
       payload: { planner: plannerAfter },
       meta: { actorAccountId: "acc-creator" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "PLANNER_CREATED",
       actorAccountId: "acc-creator",
@@ -144,14 +171,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("GM_JV_REJECTED targets the JV and leaves the rejecting GM out of the GM approvers", async () => {
+  it("for a JV a GM rejected targets the JV and leaves the rejecting GM out of the GM approvers", async () => {
     const payload = await storedPayload({
       type: "GM_JV_REJECTED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-gm-b", jvTaxId: "JV-B", rejectionReason: "Ratio is wrong" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "GM_JV_REJECTED",
       actorAccountId: "acc-gm-b",
@@ -173,14 +200,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("GM_JV_APPROVED targets the JV and records its ratios before and after", async () => {
+  it("for a JV a GM approved targets the JV and records its ratios before and after", async () => {
     const payload = await storedPayload({
       type: "GM_JV_APPROVED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-gm-a", jvTaxId: "JV-A" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "GM_JV_APPROVED",
       actorAccountId: "acc-gm-a",
@@ -200,7 +227,7 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("GM_JV_APPROVED for a JV missing from the planner falls back to empty statuses and zero ratios", async () => {
+  it("for an approved JV that is not on the planner records empty statuses and zero ratios", async () => {
     const payload = await storedPayload({
       type: "GM_JV_APPROVED",
       payload: { plannerBefore, plannerAfter },
@@ -218,14 +245,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("GM_JV_REAPPROVAL_REQUIRED records the approvers of the reset JVs", async () => {
+  it("for JVs that need GM re-approval records the approvers of the JVs that were reset", async () => {
     const payload = await storedPayload({
       type: "GM_JV_REAPPROVAL_REQUIRED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-creator", triggeringJvTaxId: "JV-A", resetJvTaxIds: ["JV-B"] },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "GM_JV_REAPPROVAL_REQUIRED",
       actorAccountId: "acc-creator",
@@ -242,14 +269,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("PLANNER_FULLY_APPROVED records the creator", async () => {
+  it("for a fully approved planner records its creator", async () => {
     const payload = await storedPayload({
       type: "PLANNER_FULLY_APPROVED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-gm-c" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "PLANNER_FULLY_APPROVED",
       actorAccountId: "acc-gm-c",
@@ -265,14 +292,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("GA_ESTIMATE_CONFIRMED records the creator's employee ids and every GM approver", async () => {
+  it("for a GA-confirmed estimate records the creator's employee ids and every GM approver", async () => {
     const payload = await storedPayload({
       type: "GA_ESTIMATE_CONFIRMED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-ga" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "GA_ESTIMATE_CONFIRMED",
       actorAccountId: "acc-ga",
@@ -288,14 +315,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("GA_ACTUAL_CONFIRMED records the actual budget item count", async () => {
+  it("for GA-confirmed actual costs records how many actual budget items there are", async () => {
     const payload = await storedPayload({
       type: "GA_ACTUAL_CONFIRMED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-ga" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "GA_ACTUAL_CONFIRMED",
       actorAccountId: "acc-ga",
@@ -311,14 +338,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("PLANNER_ANALYSIS_COMPLETED records the worthiness", async () => {
+  it("for a completed planner analysis records the planner's worthiness", async () => {
     const payload = await storedPayload({
       type: "PLANNER_ANALYSIS_COMPLETED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-planner" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "PLANNER_ANALYSIS_COMPLETED",
       actorAccountId: "acc-planner",
@@ -336,66 +363,54 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it.each(["ALLOWANCE_CLAIM_CANCELLED", "ALLOWANCE_CLAIM_REJECTED"] as const)(
-    "%s targets the claim's transaction",
-    async (type) => {
+  it.each(allowanceClaims)("for a $claim allowance claim targets the claim's transaction", async ({ type }) => {
+    const payload = await storedPayload({
+      type,
+      payload: { plannerBefore, plannerAfter },
+      meta: allowanceClaimMeta("TX-9"),
+    })
+
+    expectStoredPayload(payload, {
+      eventId: "event-1",
+      eventType: type,
+      actorAccountId: "acc-system",
+      ...plannerSource,
+      targetType: "PLANNER",
+      targetId: "TX-9",
+      ...statusChange,
+      metadata: {
+        ...plannerIdentity,
+        affectedParticipantAccountId: "acc-emp-2",
+        affectedParticipantEmployeeId: "EMP-2",
+        transactionId: "TX-9",
+        pendingConfirmExpireAt: "2026-08-23T00:00:00.000Z",
+        ...participants,
+      },
+    })
+  })
+
+  it.each(allowanceClaims)(
+    "for a $claim allowance claim without a transaction targets the affected participant",
+    async ({ type }) => {
       const payload = await storedPayload({
         type,
         payload: { plannerBefore, plannerAfter },
-        meta: {
-          actorAccountId: "acc-system",
-          affectedParticipantAccountId: "acc-emp-2",
-          affectedParticipantEmployeeId: "EMP-2",
-          transactionId: "TX-9",
-          pendingConfirmExpireAt: new Date("2026-08-23T00:00:00.000Z"),
-        },
+        meta: allowanceClaimMeta(""),
       })
 
-      expect(payload).toStrictEqual({
-        eventId: "event-1",
-        eventType: type,
-        actorAccountId: "acc-system",
-        ...plannerSource,
-        targetType: "PLANNER",
-        targetId: "TX-9",
-        ...statusChange,
-        metadata: {
-          ...plannerIdentity,
-          affectedParticipantAccountId: "acc-emp-2",
-          affectedParticipantEmployeeId: "EMP-2",
-          transactionId: "TX-9",
-          pendingConfirmExpireAt: "2026-08-23T00:00:00.000Z",
-          ...participants,
-        },
-      })
+      expect(payload.targetType).toBe("PLANNER")
+      expect(payload.targetId).toBe("acc-emp-2")
     }
   )
 
-  it("ALLOWANCE_CLAIM_REJECTED without a transaction targets the affected participant", async () => {
-    const payload = await storedPayload({
-      type: "ALLOWANCE_CLAIM_REJECTED",
-      payload: { plannerBefore, plannerAfter },
-      meta: {
-        actorAccountId: "acc-system",
-        affectedParticipantAccountId: "acc-emp-2",
-        affectedParticipantEmployeeId: "EMP-2",
-        transactionId: "",
-        pendingConfirmExpireAt: new Date("2026-08-23T00:00:00.000Z"),
-      },
-    })
-
-    expect(payload.targetType).toBe("PLANNER")
-    expect(payload.targetId).toBe("acc-emp-2")
-  })
-
-  it("EMPLOYEE_SUMMARY_SUBMITTED records the actual budget and whether the outcome has files", async () => {
+  it("for a submitted employee summary records the actual budget and whether the outcome has files", async () => {
     const payload = await storedPayload({
       type: "EMPLOYEE_SUMMARY_SUBMITTED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-emp-1" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "EMPLOYEE_SUMMARY_SUBMITTED",
       actorAccountId: "acc-emp-1",
@@ -412,14 +427,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("PLANNER_READY_FOR_ANALYSIS records the action that triggered it", async () => {
+  it("for a planner ready for analysis records the action that made it ready", async () => {
     const payload = await storedPayload({
       type: "PLANNER_READY_FOR_ANALYSIS",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-system", triggerAction: "ALLOWANCE_RESOLVED" },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "PLANNER_READY_FOR_ANALYSIS",
       actorAccountId: "acc-system",
@@ -436,14 +451,14 @@ describe("WorkflowEventDispatcher stored payloads", () => {
     })
   })
 
-  it("PLANNER_CANCELLED records the reason and who to notify", async () => {
+  it("for a cancelled planner records the reason and who to notify", async () => {
     const payload = await storedPayload({
       type: "PLANNER_CANCELLED",
       payload: { plannerBefore, plannerAfter },
       meta: { actorAccountId: "acc-creator", reason: "Trip postponed", notifyGa: true, notifyGm: false },
     })
 
-    expect(payload).toStrictEqual({
+    expectStoredPayload(payload, {
       eventId: "event-1",
       eventType: "PLANNER_CANCELLED",
       actorAccountId: "acc-creator",
@@ -455,10 +470,10 @@ describe("WorkflowEventDispatcher stored payloads", () => {
         creatorAccountId: "acc-creator",
         creatorEmployeeIds: ["EMP-C"],
         gmApproverAccountIds: ["acc-gm-a", "acc-gm-b", "acc-gm-c"],
+        ...participants,
         cancellationReason: "Trip postponed",
         notifyGa: true,
         notifyGm: false,
-        ...participants,
       },
     })
   })
