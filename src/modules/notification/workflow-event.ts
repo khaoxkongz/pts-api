@@ -5,7 +5,7 @@ import { AuditLog } from "@/models/audit-log.js"
 import { type TPlanner } from "@/models/planner.js"
 import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
 
-import { type WorkflowEventPayload } from "../../core/types.js"
+import { type WorkflowEventPayload } from "./type.js"
 
 type WorkflowEventTriggerAction = "EMP_SUMMARY_DONE" | "GA_ACTUAL_DONE" | "ALLOWANCE_RESOLVED"
 

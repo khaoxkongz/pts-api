@@ -1,7 +1,24 @@
-import { toNotificationDto } from "../../core/notification-dto.js"
-import { type NotificationDelivery } from "../../core/ports/notification-delivery.port.js"
-import { type PushHub } from "../../core/ports/push-hub.port.js"
-import { type NotificationRulesEngine } from "../../core/rules/notification-rules.engine.js"
+import { type StoredNotification, toNotificationDto } from "./dto.js"
+import { type NotificationRulesEngine } from "./evaluate-rules.js"
+import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
+
+export interface NotificationDelivery {
+  // null when the Outbox Event is missing, already published or being processed.
+  lockOutboxEventAndGetWorkflowEvent(outboxId: string): Promise<WorkflowEventPayload | null>
+  updateOutboxStatusFailed(outboxId: string, error: unknown): Promise<void>
+  updateOutboxStatusPublished(outboxId: string): Promise<void>
+  // One notification per (event, account, Recipient Kind), never overwritten. Returns each one
+  // for resolvedNotifications, including ones that already existed, so a retry re-pushes them.
+  saveNotifications(
+    event: WorkflowEventPayload,
+    resolvedNotifications: ResolvedNotification[]
+  ): Promise<StoredNotification[]>
+}
+
+export interface PushHub {
+  createStreamResponse(accountId: string): Response
+  push(accountId: string, event: string, payload: unknown): void
+}
 
 export interface PublishOutboxEventDeps {
   notificationDelivery: NotificationDelivery

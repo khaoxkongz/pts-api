@@ -1,6 +1,6 @@
 import { type ReadableStreamController } from "node:stream/web"
 
-import { type PushHub } from "../../core/ports/push-hub.port.js"
+import { type PushHub } from "./publish-outbox-event.js"
 
 interface Subscriber {
   close: () => void

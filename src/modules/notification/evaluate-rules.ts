@@ -1,14 +1,27 @@
-import { type RecipientResolver, type ResolvedRecipient } from "../ports/recipient-resolver.port.js"
-import { type WorkflowEventPayload } from "../types.js"
-import { notificationRulesConfig } from "./notification-rules.config.js"
+import { notificationRulesConfig } from "./rules.js"
 import {
   type NotificationContentVariant,
   type NotificationRuleDefinition,
   type NotificationRulesConfig,
+  type RecipientKind,
   type RecipientTarget,
   type ResolvedNotification,
   type StatusGuard,
-} from "./types.js"
+  type WorkflowEventPayload,
+} from "./type.js"
+
+export interface ResolvedRecipient {
+  accountId: string
+  kind: RecipientKind
+}
+
+export type RecipientRole = "GA" | "PLANNER" | "FINANCE"
+
+export interface RecipientResolver {
+  resolveAccountRecipients(accountIds: string[], kind: RecipientKind): Promise<ResolvedRecipient[]>
+  resolveRoleRecipients(role: RecipientRole, kind: RecipientKind): Promise<ResolvedRecipient[]>
+  resolveSupervisorRecipients(subordinateEmployeeIds: string[]): Promise<ResolvedRecipient[]>
+}
 
 export class NotificationRulesEngine {
   constructor(

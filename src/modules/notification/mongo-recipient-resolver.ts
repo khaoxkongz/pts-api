@@ -1,7 +1,7 @@
 import { Supervisor, User } from "@/models/user.js"
 
-import { type RecipientResolver, type ResolvedRecipient } from "../../core/ports/recipient-resolver.port.js"
-import { type RecipientKind } from "../../core/types.js"
+import { type RecipientResolver, type ResolvedRecipient } from "./evaluate-rules.js"
+import { type RecipientKind } from "./type.js"
 
 export const MongoRecipientResolverRepository: RecipientResolver = {
   async resolveAccountRecipients(accountIds: string[], kind: RecipientKind): Promise<ResolvedRecipient[]> {

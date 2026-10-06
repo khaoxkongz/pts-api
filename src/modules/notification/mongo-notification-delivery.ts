@@ -1,10 +1,9 @@
 import { PlannerNotification } from "@/models/planner-notification.js"
 import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
 
-import { type StoredNotification } from "../../core/notification-dto.js"
-import { type NotificationDelivery } from "../../core/ports/notification-delivery.port.js"
-import { type ResolvedNotification } from "../../core/rules/types.js"
-import { type WorkflowEventPayload } from "../../core/types.js"
+import { type StoredNotification } from "./dto.js"
+import { type NotificationDelivery } from "./publish-outbox-event.js"
+import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 function notificationKey(notification: { accountId: string; recipientKind: string }) {
   return `${notification.accountId}|${notification.recipientKind}`

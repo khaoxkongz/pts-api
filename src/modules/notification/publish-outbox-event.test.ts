@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vite-plus/test"
 
-import { type StoredNotification } from "../../core/notification-dto.js"
-import { type NotificationDelivery } from "../../core/ports/notification-delivery.port.js"
-import { type PushHub } from "../../core/ports/push-hub.port.js"
+import { type StoredNotification } from "./dto.js"
 import {
+  NotificationRulesEngine,
   type RecipientResolver,
   type RecipientRole,
   type ResolvedRecipient,
-} from "../../core/ports/recipient-resolver.port.js"
-import { NotificationRulesEngine } from "../../core/rules/notification-rules.engine.js"
-import { type ResolvedNotification } from "../../core/rules/types.js"
-import { type RecipientKind, type WorkflowEventPayload } from "../../core/types.js"
-import { publishOutboxEventCommand } from "./publish-outbox-event.handler.js"
+} from "./evaluate-rules.js"
+import { type NotificationDelivery, type PushHub, publishOutboxEventCommand } from "./publish-outbox-event.js"
+import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
   accountId: string
