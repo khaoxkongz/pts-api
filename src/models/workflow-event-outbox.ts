@@ -18,5 +18,8 @@ const schema = new Schema(
   { timestamps: true }
 )
 
+// Supports the relay's find-due query: status filter, oldest first.
+schema.index({ status: 1, createdAt: 1 })
+
 export type TWorkflowEventOutbox = InferSchemaType<typeof schema>
 export const WorkflowEventOutbox = model<TWorkflowEventOutbox>("WorkflowEventOutbox", schema, "workflow_event_outbox")

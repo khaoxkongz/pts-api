@@ -1,6 +1,8 @@
-import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
+import { type QueryFilter } from "mongoose"
 
-import { type OutboxEvents } from "./publish-outbox-event.js"
+import { type TWorkflowEventOutbox, WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
+
+import { type FindDueOptions, type OutboxEvents } from "./publish-outbox-event.js"
 import { type WorkflowEventPayload } from "./type.js"
 
 // Every write to an Outbox Event lives in this file (ADR-0003).
@@ -16,14 +18,21 @@ export async function createOutboxEvent(event: WorkflowEventPayload): Promise<st
   return outbox._id.toString()
 }
 
+// The Outbox Events lock may take. Find-due uses the same filter, so it never returns an id lock would refuse.
+function lockableFilter(): QueryFilter<TWorkflowEventOutbox> {
+  return {
+    status: {
+      $in: ["PENDING", "FAILED"],
+    },
+  }
+}
+
 export const MongoOutboxEvents: OutboxEvents = {
   async lock(outboxId: string) {
     const outbox = await WorkflowEventOutbox.findOneAndUpdate(
       {
         _id: outboxId,
-        status: {
-          $in: ["PENDING", "FAILED"],
-        },
+        ...lockableFilter(),
       },
       {
         $set: {
@@ -66,5 +75,22 @@ export const MongoOutboxEvents: OutboxEvents = {
         },
       }
     )
+  },
+
+  async findDue({ maxAttempts, limit }: FindDueOptions) {
+    const due = await WorkflowEventOutbox.find(
+      {
+        ...lockableFilter(),
+        attempts: {
+          $lt: maxAttempts,
+        },
+      },
+      { _id: 1 }
+    )
+      .sort({ createdAt: 1 })
+      .limit(limit)
+      .lean()
+
+    return due.map((outbox) => outbox._id.toString())
   },
 }
