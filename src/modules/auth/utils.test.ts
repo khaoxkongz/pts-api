@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 
-import { createSignedToken, sessionTokenFrom } from "./utils.js"
+import { createSignedToken, requestSessionCredentials, sessionTokenFrom } from "./utils.js"
 
 const SECRET = "test-session-secret-that-is-long-enough"
 
@@ -34,5 +34,23 @@ describe("session token precedence", () => {
   it("finds no token when neither a header token nor a cookie is sent", () => {
     expect(sessionTokenFrom({}, SECRET)).toBeNull()
     expect(sessionTokenFrom({ rawToken: "", signedCookie: "" }, SECRET)).toBeNull()
+  })
+})
+
+describe("session credentials of a request", () => {
+  it("takes the raw token from x-authorized-token and the signed token from the auth cookie", () => {
+    const credentials = requestSessionCredentials({
+      headers: { "x-authorized-token": "header-token", authorization: "Bearer bearer-token" },
+      cookie: { auth: { value: "token.signature" }, other: { value: "other" } },
+    })
+
+    expect(credentials).toEqual({ rawToken: "header-token", signedCookie: "token.signature" })
+  })
+
+  it("leaves both empty when the request sends neither", () => {
+    expect(requestSessionCredentials({ headers: {}, cookie: {} })).toEqual({
+      rawToken: undefined,
+      signedCookie: undefined,
+    })
   })
 })

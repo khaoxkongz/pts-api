@@ -11,7 +11,7 @@ function notificationKey(notification: { accountId: string; recipientKind: strin
 }
 
 export const MongoNotificationDeliveryRepository: NotificationDelivery = {
-  async lockPendingOutboxEvent(outboxId: string) {
+  async lockOutboxEventAndGetWorkflowEvent(outboxId: string) {
     const outbox = await WorkflowEventOutbox.findOneAndUpdate(
       {
         _id: outboxId,

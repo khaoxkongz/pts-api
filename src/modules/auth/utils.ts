@@ -45,9 +45,17 @@ export interface SessionCredentials {
   signedCookie?: string | null
 }
 
-/**
- * เลือก session token ที่จะใช้ค้นหา session (ADR-0001)
- */
+export function requestSessionCredentials(request: {
+  headers: Record<string, string | undefined>
+  cookie: Record<string, { value?: unknown } | undefined>
+}): SessionCredentials {
+  return {
+    rawToken: request.headers["x-authorized-token"],
+    signedCookie: request.cookie.auth?.value as string | undefined,
+  }
+}
+
+// The raw (header) token wins over the signed cookie, with no fallback (ADR-0001).
 export function sessionTokenFrom(credentials: SessionCredentials, secret: string): string | null {
   if (credentials.rawToken) {
     return credentials.rawToken

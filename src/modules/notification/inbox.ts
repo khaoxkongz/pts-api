@@ -2,9 +2,7 @@ import { PlannerNotification } from "@/models/planner-notification.js"
 
 import { toNotificationDto, type StoredNotification } from "./core/notification-dto.js"
 
-/** One account's notifications, newest first: reading, counting and marking them read. */
 export const Inbox = {
-  /** Lists one page of the Inbox. Page and page size below 1 are clamped to 1. */
   async listPage(accountId: string, page = 1, pageSize = 20) {
     const safePage = Math.max(page, 1)
     const safePageSize = Math.max(pageSize, 1)
@@ -29,7 +27,6 @@ export const Inbox = {
     return await PlannerNotification.countDocuments({ accountId, readAt: null })
   },
 
-  /** Marks one notification read. Returns `null` when it isn't in this Inbox or is already read. */
   async markRead(accountId: string, notificationId: string) {
     const notification = await PlannerNotification.findOneAndUpdate(
       { _id: notificationId, accountId, readAt: null },
@@ -40,7 +37,6 @@ export const Inbox = {
     return notification ? toNotificationDto(notification as StoredNotification) : null
   },
 
-  /** Marks every unread notification read and returns how many changed. */
   async markAllRead(accountId: string) {
     const result = await PlannerNotification.updateMany({ accountId, readAt: null }, { $set: { readAt: new Date() } })
 

@@ -20,12 +20,7 @@ export const SESSION_CONFIG = {
   disableRefresh: env.SESSION_DISABLE_REFRESH,
 }
 
-/**
- * Session token → Session → User, the one session resolution path (ADR-0001).
- * The raw token (x-authorized-token header) is tried first, then the signed
- * `auth` cookie. A missing or expired session, or a missing user, gives null.
- * Database errors propagate so an outage is a 500, not a logout.
- */
+// The one session resolution path (ADR-0001). Database errors propagate: an outage is a 500, not a logout.
 export async function resolveSessionUser(credentials: SessionCredentials) {
   const token = sessionTokenFrom(credentials, SESSION_CONFIG.secret)
   if (!token) return null

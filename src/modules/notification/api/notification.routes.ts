@@ -1,6 +1,7 @@
 import { Elysia } from "elysia"
 
 import { resolveSessionUser } from "@/modules/auth/service.js"
+import { requestSessionCredentials } from "@/modules/auth/utils.js"
 import { session } from "@/plugins/session.js"
 
 import { type PushHub } from "../core/ports/push-hub.port.js"
@@ -111,8 +112,8 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
       "/stream",
       async ({ headers, cookie, query, status }) => {
         const resolved = await resolveSessionUser({
+          ...requestSessionCredentials({ headers, cookie }),
           rawToken: streamRawToken(headers, query),
-          signedCookie: cookie.auth?.value as string | undefined,
         })
         const user = resolved?.user
 

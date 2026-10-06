@@ -13,10 +13,6 @@ import { type ResolvedNotification } from "../../core/rules/types.js"
 import { type RecipientKind, type WorkflowEventPayload } from "../../core/types.js"
 import { publishOutboxEventCommand } from "./publish-outbox-event.handler.js"
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
 interface FixtureUser {
   accountId: string
   role?: RecipientRole | "EMPLOYEE" | "GM"
@@ -46,10 +42,6 @@ function workflowEvent(overrides: Partial<WorkflowEventPayload> = {}): WorkflowE
     },
   }
 }
-
-// ---------------------------------------------------------------------------
-// In-memory fakes for the three notification ports
-// ---------------------------------------------------------------------------
 
 class FakeRecipientResolver implements RecipientResolver {
   public failure: Error | null = null
@@ -114,7 +106,7 @@ class FakeNotificationDelivery implements NotificationDelivery {
     return [...this.notifications.values()]
   }
 
-  public async lockPendingOutboxEvent(outboxId: string) {
+  public async lockOutboxEventAndGetWorkflowEvent(outboxId: string) {
     const event = this.outbox.get(outboxId)
     if (!event || (event.status !== "PENDING" && event.status !== "FAILED")) {
       return null
@@ -219,10 +211,6 @@ function summarize(notifications: StoredNotification[]) {
     .map((n) => ({ accountId: n.accountId, recipientKind: n.recipientKind, templateKey: n.templateKey }))
     .sort((a, b) => `${a.accountId}${a.recipientKind}`.localeCompare(`${b.accountId}${b.recipientKind}`))
 }
-
-// ---------------------------------------------------------------------------
-// Behaviour
-// ---------------------------------------------------------------------------
 
 describe("publishing an Outbox Event", () => {
   it("notifies every GA about a new planner, pushes each notification and marks the event published", async () => {

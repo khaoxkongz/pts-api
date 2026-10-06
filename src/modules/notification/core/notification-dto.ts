@@ -1,12 +1,12 @@
 import { type ResolvedNotification } from "./rules/types.js"
+import { type RecipientKind, type WorkflowEventType } from "./types.js"
 
-/** A notification as it is kept in an account's Inbox. */
 export interface StoredNotification {
   _id: { toString(): string }
   eventId: string
-  eventType: string
+  eventType: WorkflowEventType
   accountId: string
-  recipientKind: string
+  recipientKind: RecipientKind
   templateKey: string
   title: string
   body: string

@@ -11,7 +11,7 @@ export interface PublishOutboxEventDeps {
 
 export function publishOutboxEventCommand(deps: PublishOutboxEventDeps) {
   return async function execute(outboxId: string): Promise<void> {
-    const event = await deps.notificationDelivery.lockPendingOutboxEvent(outboxId)
+    const event = await deps.notificationDelivery.lockOutboxEventAndGetWorkflowEvent(outboxId)
     if (!event) {
       return
     }
