@@ -1,17 +1,9 @@
 import { describe, expect, it } from "vite-plus/test"
 
-import { type StoredNotification } from "../../core/notification-dto.js"
-import { type NotificationDelivery } from "../../core/ports/notification-delivery.port.js"
-import { type PushHub } from "../../core/ports/push-hub.port.js"
-import {
-  type RecipientResolver,
-  type RecipientRole,
-  type ResolvedRecipient,
-} from "../../core/ports/recipient-resolver.port.js"
-import { NotificationRulesEngine } from "../../core/rules/notification-rules.engine.js"
-import { type ResolvedNotification } from "../../core/rules/types.js"
-import { type RecipientKind, type WorkflowEventPayload } from "../../core/types.js"
-import { publishOutboxEventCommand } from "./publish-outbox-event.handler.js"
+import { type StoredNotification } from "./dto.js"
+import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
+import { type NotificationDelivery, type PushHub, createOutboxEventPublisher } from "./publish-outbox-event.js"
+import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
   accountId: string
@@ -187,19 +179,15 @@ class RecordingPushHub implements PushHub {
   public push(accountId: string, event: string, payload: unknown) {
     this.pushes.push({ accountId, event, payload: payload as RecordedPush["payload"] })
   }
-
-  public createStreamResponse(): Response {
-    throw new Error("Streams are not used by these tests")
-  }
 }
 
 function setup(users: FixtureUser[]) {
   const recipientResolver = new FakeRecipientResolver(users)
   const delivery = new FakeNotificationDelivery()
   const pushHub = new RecordingPushHub()
-  const publish = publishOutboxEventCommand({
-    notificationDelivery: delivery,
-    rulesEngine: new NotificationRulesEngine(recipientResolver),
+  const publish = createOutboxEventPublisher({
+    delivery,
+    recipients: recipientResolver,
     pushHub,
   })
 

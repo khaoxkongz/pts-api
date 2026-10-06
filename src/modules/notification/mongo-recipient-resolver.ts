@@ -1,9 +1,9 @@
 import { Supervisor, User } from "@/models/user.js"
 
-import { type RecipientResolver, type ResolvedRecipient } from "../../core/ports/recipient-resolver.port.js"
-import { type RecipientKind } from "../../core/types.js"
+import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
+import { type RecipientKind } from "./type.js"
 
-export const MongoRecipientResolverRepository: RecipientResolver = {
+export const MongoRecipientResolver: RecipientResolver = {
   async resolveAccountRecipients(accountIds: string[], kind: RecipientKind): Promise<ResolvedRecipient[]> {
     const uniqueAccountIds = [...new Set(accountIds.filter(Boolean))]
 
@@ -18,7 +18,7 @@ export const MongoRecipientResolverRepository: RecipientResolver = {
     return users.map((user) => ({ accountId: user.accountId, kind }))
   },
 
-  async resolveRoleRecipients(role: "GA" | "PLANNER" | "FINANCE", kind: RecipientKind): Promise<ResolvedRecipient[]> {
+  async resolveRoleRecipients(role: RecipientRole, kind: RecipientKind): Promise<ResolvedRecipient[]> {
     const users = await User.find({ role }).select("accountId").lean()
 
     return users.map((user) => ({

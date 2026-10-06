@@ -1,23 +1,15 @@
-import { MongoNotificationDeliveryRepository } from "./adapters/persistence/mongo-notification-delivery.repository.js"
-import { MongoRecipientResolverRepository } from "./adapters/persistence/mongo-recipient-resolver.repository.js"
-import { SsePushHub } from "./adapters/push/sse-push-hub.adapter.js"
-import { notificationRulesConfig } from "./core/rules/notification-rules.config.js"
-import { NotificationRulesEngine } from "./core/rules/notification-rules.engine.js"
-import { notificationModule } from "./module.js"
-import { publishOutboxEventCommand } from "./use-cases/commands/publish-outbox-event.handler.js"
-import { WorkflowEventDispatcher } from "./use-cases/services/workflow-event-dispatcher.js"
+import { MongoNotificationDelivery } from "./mongo-notification-delivery.js"
+import { MongoRecipientResolver } from "./mongo-recipient-resolver.js"
+import { createOutboxEventPublisher } from "./publish-outbox-event.js"
+import { SsePushHub } from "./sse-push-hub.js"
+import { WorkflowEventDispatcher } from "./workflow-event.js"
 
-const pushHub = new SsePushHub()
-const rulesEngine = new NotificationRulesEngine(MongoRecipientResolverRepository, notificationRulesConfig)
+export const pushHub = new SsePushHub()
 
-export const notification = notificationModule({ pushHub })
-
-const publishOutboxEvent = publishOutboxEventCommand({
-  notificationDelivery: MongoNotificationDeliveryRepository,
-  rulesEngine,
+const publishOutboxEvent = createOutboxEventPublisher({
+  delivery: MongoNotificationDelivery,
+  recipients: MongoRecipientResolver,
   pushHub,
 })
 
-export const workflowEventDispatcher = new WorkflowEventDispatcher({
-  publishOutboxById: (outboxId: string) => publishOutboxEvent(outboxId),
-})
+export const workflowEventDispatcher = new WorkflowEventDispatcher(publishOutboxEvent)

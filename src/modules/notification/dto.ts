@@ -1,5 +1,4 @@
-import { type ResolvedNotification } from "./rules/types.js"
-import { type RecipientKind, type WorkflowEventType } from "./types.js"
+import { type RecipientKind, type ResolvedNotification, type WorkflowEventType } from "./type.js"
 
 export interface StoredNotification {
   _id: { toString(): string }

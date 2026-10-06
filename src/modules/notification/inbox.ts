@@ -1,6 +1,6 @@
 import { PlannerNotification } from "@/models/planner-notification.js"
 
-import { toNotificationDto, type StoredNotification } from "./core/notification-dto.js"
+import { toNotificationDto, type StoredNotification } from "./dto.js"
 
 export const Inbox = {
   async listPage(accountId: string, page = 1, pageSize = 20) {
