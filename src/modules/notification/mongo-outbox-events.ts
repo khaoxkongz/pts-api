@@ -21,10 +21,9 @@ export async function createOutboxEvent(event: WorkflowEventPayload): Promise<st
 export interface MongoOutboxEventsOptions {
   // How long a lock lasts before another attempt may take the Outbox Event (OUTBOX_LEASE_MS).
   leaseMs: number
-  now?: () => Date
 }
 
-export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: MongoOutboxEventsOptions): OutboxEvents {
+export function createMongoOutboxEvents({ leaseMs }: MongoOutboxEventsOptions): OutboxEvents {
   // The Outbox Events lock may take: pending or failed, or processing with an expired lease. A processing
   // event with no lock timestamp was locked before leases existed, so its lease counts as expired
   // (`lockedAt: null` also matches a missing field). Find-due uses the same filter, so it never returns
@@ -41,7 +40,7 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
 
   return {
     async lock(outboxId: string) {
-      const lockedAt = now()
+      const lockedAt = new Date()
       const outbox = await WorkflowEventOutbox.findOneAndUpdate(
         {
           _id: outboxId,
@@ -72,7 +71,7 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
         {
           $set: {
             status: "PUBLISHED",
-            publishedAt: now(),
+            publishedAt: new Date(),
             lastError: "",
           },
         }
@@ -94,7 +93,7 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
     async findDue({ maxAttempts, limit }: FindDueOptions) {
       const due = await WorkflowEventOutbox.find(
         {
-          ...lockableFilter(now()),
+          ...lockableFilter(new Date()),
           attempts: {
             $lt: maxAttempts,
           },
