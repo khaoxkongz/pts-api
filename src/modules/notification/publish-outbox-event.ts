@@ -5,8 +5,9 @@ import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 // Lock and status of an Outbox Event. Create isn't here: it is a plain function in the Mongo outbox file,
 // called only by the dispatcher (ADR-0003).
 export interface OutboxEvents {
-  // Takes the Outbox Event for one publish, with a lease. null when it is missing, already published,
-  // or being processed by another attempt whose lease has not run out.
+  // Takes the Outbox Event for one publish, with a lease, and counts the attempt, so a publish that dies
+  // still counts towards the cap. null when it is missing, already published, or being processed by
+  // another attempt whose lease has not run out.
   lock(outboxId: string): Promise<WorkflowEventPayload | null>
   markPublished(outboxId: string): Promise<void>
   markFailed(outboxId: string, error: unknown): Promise<void>

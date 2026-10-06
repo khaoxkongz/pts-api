@@ -52,6 +52,10 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
             status: "PROCESSING",
             lockedAt,
           },
+          // Counted on lock, so a publish that kills the process still uses up an attempt.
+          $inc: {
+            attempts: 1,
+          },
         },
         { new: true }
       ).lean()
@@ -69,9 +73,6 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
             publishedAt: now(),
             lastError: "",
           },
-          $inc: {
-            attempts: 1,
-          },
         }
       )
     },
@@ -83,9 +84,6 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
           $set: {
             status: "FAILED",
             lastError: error instanceof Error ? error.message : String(error),
-          },
-          $inc: {
-            attempts: 1,
           },
         }
       )

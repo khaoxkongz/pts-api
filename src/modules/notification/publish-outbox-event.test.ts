@@ -117,20 +117,19 @@ class FakeOutboxEvents implements OutboxEvents {
       return null
     }
     event.lockedAt = this.now
+    event.attempts += 1
     this.transition(event, "PROCESSING")
     return event.payload
   }
 
   public async markPublished(outboxId: string) {
     const event = this.outboxEvent(outboxId)
-    event.attempts += 1
     event.lastError = ""
     this.transition(event, "PUBLISHED")
   }
 
   public async markFailed(outboxId: string, error: unknown) {
     const event = this.outboxEvent(outboxId)
-    event.attempts += 1
     event.lastError = error instanceof Error ? error.message : String(error)
     this.transition(event, "FAILED")
   }
@@ -707,7 +706,7 @@ describe("relaying due Outbox Events", () => {
 
       expect(notifications.savedNotifications()).toHaveLength(1)
       expect(pushHub.pushes).toEqual([])
-      expect(outbox.outboxEvent("outbox-1")).toMatchObject({ attempts: 0, statusHistory: ["PENDING", "PROCESSING"] })
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({ attempts: 1, statusHistory: ["PENDING", "PROCESSING"] })
     })
 
     it("re-pushes the notifications a dead publish already saved, without storing duplicates", async () => {
@@ -729,7 +728,8 @@ describe("relaying due Outbox Events", () => {
       expect(pushHub.pushes.map((p) => p.payload.id)).toEqual([savedBeforeDying?._id, saved[1]?._id])
       expect(outbox.outboxEvent("outbox-1")).toMatchObject({
         status: "PUBLISHED",
-        attempts: 1,
+        // The dead publish used up an attempt too.
+        attempts: 2,
         statusHistory: ["PENDING", "PROCESSING", "PROCESSING", "PUBLISHED"],
       })
     })
@@ -765,6 +765,31 @@ describe("relaying due Outbox Events", () => {
       expect(outbox.outboxEvent("below-cap")).toMatchObject({ status: "PUBLISHED", attempts: 3 })
       expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-3"]))
       expect(pushHub.pushes).toHaveLength(2)
+    })
+
+    it("stops taking an Outbox Event whose publish keeps dying once its attempts reach the cap", async () => {
+      const { outbox, notifications, publish, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      // Every publish of this event dies part-way, as if it crashed the process.
+      notifications.stallSaveAfter = 1
+      void publish("outbox-1")
+      await vi.waitFor(() => expect(notifications.savedNotifications()).toHaveLength(1))
+      outbox.now = new Date(outbox.now.getTime() + leaseMs + 1)
+      notifications.stallSaveAfter = 1
+      void relay(2)
+      await vi.waitFor(() =>
+        expect(outbox.outboxEvent("outbox-1").statusHistory).toEqual(["PENDING", "PROCESSING", "PROCESSING"])
+      )
+      outbox.now = new Date(outbox.now.getTime() + leaseMs + 1)
+
+      const result = await relay(2)
+
+      expect(result.attempted).toBe(0)
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+        status: "PROCESSING",
+        attempts: 2,
+        statusHistory: ["PENDING", "PROCESSING", "PROCESSING"],
+      })
     })
   })
 
