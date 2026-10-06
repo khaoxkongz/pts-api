@@ -15,6 +15,10 @@ describe("notification stream token", () => {
     expect(streamRawToken({ "x-authorized-token": "header-token" }, { token: "query-token" })).toBe("header-token")
   })
 
+  it("keeps an empty header instead of falling back to ?token=", () => {
+    expect(streamRawToken({ "x-authorized-token": "" }, { token: "query-token" })).toBe("")
+  })
+
   it("does not accept an Authorization: Bearer token", () => {
     expect(streamRawToken({ authorization: "Bearer bearer-token" }, {})).toBeNull()
   })

@@ -21,6 +21,18 @@ describe("session token precedence", () => {
     expect(sessionTokenFrom({ rawToken: "header-token", signedCookie: signedToken }, SECRET)).toBe("header-token")
   })
 
+  it("rejects an empty header token instead of falling back to the cookie", () => {
+    const { signedToken } = createSignedToken(SECRET)
+
+    expect(sessionTokenFrom({ rawToken: "", signedCookie: signedToken }, SECRET)).toBeNull()
+  })
+
+  it("uses the cookie when no raw token was sent", () => {
+    const { token, signedToken } = createSignedToken(SECRET)
+
+    expect(sessionTokenFrom({ rawToken: null, signedCookie: signedToken }, SECRET)).toBe(token)
+  })
+
   it("rejects a cookie signed with another secret", () => {
     const { signedToken } = createSignedToken("another-secret-that-is-also-long-enough")
 

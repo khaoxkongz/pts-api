@@ -55,10 +55,10 @@ export function requestSessionCredentials(request: {
   }
 }
 
-// The raw (header) token wins over the signed cookie, with no fallback (ADR-0001).
+// A sent raw (header) token wins over the signed cookie, with no fallback, even when it is empty (ADR-0001).
 export function sessionTokenFrom(credentials: SessionCredentials, secret: string): string | null {
-  if (credentials.rawToken) {
-    return credentials.rawToken
+  if (typeof credentials.rawToken === "string") {
+    return credentials.rawToken || null
   }
 
   if (!credentials.signedCookie) {
