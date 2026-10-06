@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 
 import { type StoredNotification } from "./dto.js"
-import {
-  NotificationRulesEngine,
-  type RecipientResolver,
-  type RecipientRole,
-  type ResolvedRecipient,
-} from "./evaluate-rules.js"
+import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
 import { type NotificationDelivery, type PushHub, publishOutboxEventCommand } from "./publish-outbox-event.js"
 import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
@@ -184,10 +179,6 @@ class RecordingPushHub implements PushHub {
   public push(accountId: string, event: string, payload: unknown) {
     this.pushes.push({ accountId, event, payload: payload as RecordedPush["payload"] })
   }
-
-  public createStreamResponse(): Response {
-    throw new Error("Streams are not used by these tests")
-  }
 }
 
 function setup(users: FixtureUser[]) {
@@ -195,8 +186,8 @@ function setup(users: FixtureUser[]) {
   const delivery = new FakeNotificationDelivery()
   const pushHub = new RecordingPushHub()
   const publish = publishOutboxEventCommand({
-    notificationDelivery: delivery,
-    rulesEngine: new NotificationRulesEngine(recipientResolver),
+    delivery,
+    recipients: recipientResolver,
     pushHub,
   })
 

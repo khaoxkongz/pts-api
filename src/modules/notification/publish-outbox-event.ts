@@ -1,5 +1,5 @@
 import { type StoredNotification, toNotificationDto } from "./dto.js"
-import { type NotificationRulesEngine } from "./evaluate-rules.js"
+import { evaluateRules, type RecipientResolver } from "./evaluate-rules.js"
 import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 export interface NotificationDelivery {
@@ -16,35 +16,34 @@ export interface NotificationDelivery {
 }
 
 export interface PushHub {
-  createStreamResponse(accountId: string): Response
   push(accountId: string, event: string, payload: unknown): void
 }
 
 export interface PublishOutboxEventDeps {
-  notificationDelivery: NotificationDelivery
-  rulesEngine: NotificationRulesEngine
+  delivery: NotificationDelivery
+  recipients: RecipientResolver
   pushHub: PushHub
 }
 
 export function publishOutboxEventCommand(deps: PublishOutboxEventDeps) {
   return async function execute(outboxId: string): Promise<void> {
-    const event = await deps.notificationDelivery.lockOutboxEventAndGetWorkflowEvent(outboxId)
+    const event = await deps.delivery.lockOutboxEventAndGetWorkflowEvent(outboxId)
     if (!event) {
       return
     }
 
     try {
-      const resolvedNotifications = await deps.rulesEngine.evaluate(event)
-      const notifications = await deps.notificationDelivery.saveNotifications(event, resolvedNotifications)
+      const resolvedNotifications = await evaluateRules(event, deps.recipients)
+      const notifications = await deps.delivery.saveNotifications(event, resolvedNotifications)
 
       // A retried event re-pushes notifications that already existed, so a Live Push arrives at least once.
       for (const notification of notifications) {
         deps.pushHub.push(notification.accountId, "notification.created", toNotificationDto(notification))
       }
 
-      await deps.notificationDelivery.updateOutboxStatusPublished(outboxId)
+      await deps.delivery.updateOutboxStatusPublished(outboxId)
     } catch (error) {
-      await deps.notificationDelivery.updateOutboxStatusFailed(outboxId, error)
+      await deps.delivery.updateOutboxStatusFailed(outboxId, error)
       throw error
     }
   }
