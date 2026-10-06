@@ -1,46 +1,15 @@
 import { Elysia } from "elysia"
 
-import { Session } from "@/models/session.js"
-import { User } from "@/models/user.js"
+import { resolveSessionUser } from "@/modules/auth/service.js"
+import { requestSessionCredentials } from "@/modules/auth/utils.js"
 
 export const roles = new Elysia({ name: "auth.roles" }).macro({
   requireRole: (roles: string[]) => ({
-    resolve: async ({ headers }) => {
-      const token = headers["x-authorized-token"]
-      if (!token) {
-        return {
-          authorized: false,
-        }
-      }
+    // Resolves the user itself: one macro's resolve must not depend on another's result.
+    resolve: async ({ headers, cookie }) => {
+      const resolved = await resolveSessionUser(requestSessionCredentials({ headers, cookie }))
 
-      const session = await Session.findOne({
-        token,
-        expiresIn: { $gt: new Date() },
-      })
-
-      if (!session) {
-        return {
-          authorized: false,
-        }
-      }
-
-      const user = await User.findOne({
-        accountId: session.userId,
-      })
-
-      if (!user) {
-        return {
-          authorized: false,
-        }
-      }
-
-      if (!roles.includes(user.role)) {
-        return {
-          authorized: false,
-        }
-      }
-
-      return { authorized: true }
+      return { authorized: resolved !== null && roles.includes(resolved.user.role) }
     },
   }),
 })

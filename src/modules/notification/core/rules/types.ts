@@ -46,7 +46,6 @@ export interface AuditOnlyRuleDefinition {
 export type WorkflowEventRuleDefinition = NotificationRuleDefinition | AuditOnlyRuleDefinition
 
 export interface NotificationRulesConfig {
-  recipientPriority: Record<RecipientKind, number>
   events: Record<WorkflowEventType, WorkflowEventRuleDefinition>
 }
 

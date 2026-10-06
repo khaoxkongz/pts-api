@@ -221,7 +221,6 @@ export const roleManager = new Elysia({ prefix: "/role" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       body: RoleModel.requestBody,
       detail: {
@@ -293,7 +292,6 @@ export const roleManager = new Elysia({ prefix: "/role" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       query: RoleModel.queryParams,
       detail: {
@@ -339,7 +337,6 @@ export const roleManager = new Elysia({ prefix: "/role" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["SUPERADMIN"],
       query: RoleModel.queryDropdownParams,
       detail: {

@@ -1,33 +1,19 @@
 import { Elysia } from "elysia"
 
+import { resolveSessionUser } from "@/modules/auth/service.js"
+import { requestSessionCredentials } from "@/modules/auth/utils.js"
 import { session } from "@/plugins/session.js"
 
+import { type PushHub } from "../core/ports/push-hub.port.js"
+import { Inbox } from "../inbox.js"
 import { NotificationSchema } from "./notification.schema.js"
+import { streamRawToken } from "./stream-token.js"
 
-export interface NotificationRoutesQueries {
-  listNotifications(
-    accountId: string,
-    page: number | undefined,
-    pageSize: number | undefined
-  ): Promise<{ totalCount: number; totalPages: number; notifications: unknown[] }>
-  getUnreadCount(accountId: string): Promise<number>
+export interface NotificationRoutesDeps {
+  pushHub: PushHub
 }
 
-export interface NotificationRoutesCommands {
-  markNotificationRead(accountId: string, notificationId: string): Promise<unknown>
-  markAllNotificationsRead(accountId: string): Promise<number>
-}
-
-export interface NotificationRoutesStream {
-  resolveUser(params: { rawToken?: string | null; signedToken?: string | null }): Promise<{ accountId: string } | null>
-  createStreamResponse(accountId: string): Response
-}
-
-export function notificationRoutes(
-  notificationQueries: NotificationRoutesQueries,
-  notificationCommands: NotificationRoutesCommands,
-  notificationStream: NotificationRoutesStream
-) {
+export function notificationRoutes(deps: NotificationRoutesDeps) {
   return new Elysia()
     .use(session)
 
@@ -38,7 +24,7 @@ export function notificationRoutes(
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const data = await notificationQueries.listNotifications(user.accountId, query.page, query.pageSize)
+        const data = await Inbox.listPage(user.accountId, query.page, query.pageSize)
 
         return status(200, {
           success: true,
@@ -49,7 +35,6 @@ export function notificationRoutes(
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         query: NotificationSchema.notificationListQuery,
         detail: {
           description: "ใช้สำหรับดูข้อมูลของการแจ้งเตือน",
@@ -65,13 +50,12 @@ export function notificationRoutes(
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const unreadCount = await notificationQueries.getUnreadCount(user.accountId)
+        const unreadCount = await Inbox.countUnread(user.accountId)
 
         return status(200, { success: true, data: { unreadCount } })
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         detail: {
           description: "ใช้สำหรับดูจำนวนการแจ้งเตือนที่ยังไม่ได้อ่าน",
           tags: ["Notification"],
@@ -86,7 +70,7 @@ export function notificationRoutes(
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const notification = await notificationCommands.markNotificationRead(user.accountId, params.notificationId)
+        const notification = await Inbox.markRead(user.accountId, params.notificationId)
 
         if (!notification) {
           return status(404, { success: false, message: "ไม่พบการแจ้งเตือนที่ระบุ" })
@@ -96,7 +80,6 @@ export function notificationRoutes(
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         params: NotificationSchema.notificationIdParams,
         detail: {
           description: "ใช้สำหรับทำเครื่องหมายว่าอ่านแล้ว",
@@ -112,13 +95,12 @@ export function notificationRoutes(
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const modifiedCount = await notificationCommands.markAllNotificationsRead(user.accountId)
+        const modifiedCount = await Inbox.markAllRead(user.accountId)
 
         return status(200, { success: true, message: `ทำเครื่องหมายว่าอ่านแล้ว ${modifiedCount} รายการ` })
       },
       {
         isAuth: true,
-        isAuthWithToken: true,
         detail: {
           description: "ใช้สำหรับทำเครื่องหมายว่าอ่านแล้วทั้งหมด",
           tags: ["Notification"],
@@ -129,20 +111,17 @@ export function notificationRoutes(
     .get(
       "/stream",
       async ({ headers, cookie, query, status }) => {
-        const headerToken = typeof headers["x-authorized-token"] === "string" ? headers["x-authorized-token"] : null
-        const bearerToken =
-          typeof headers["authorization"] === "string" ? headers["authorization"].replace(/^Bearer\s+/i, "") : null
-        const queryToken = typeof query.token === "string" ? query.token : null
-        const rawToken = headerToken || bearerToken || queryToken
-        const signedToken = typeof cookie["auth"]?.value === "string" ? cookie["auth"].value : null
-
-        const user = await notificationStream.resolveUser({ rawToken, signedToken })
+        const resolved = await resolveSessionUser({
+          ...requestSessionCredentials({ headers, cookie }),
+          rawToken: streamRawToken(headers, query),
+        })
+        const user = resolved?.user
 
         if (!user) {
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        return notificationStream.createStreamResponse(user.accountId)
+        return deps.pushHub.createStreamResponse(user.accountId)
       },
       {
         query: NotificationSchema.streamQuery,

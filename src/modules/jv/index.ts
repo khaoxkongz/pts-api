@@ -46,7 +46,6 @@ export const jv = new Elysia({ prefix: "/jv" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       detail: {
         description: "ดึงข้อมูล JV ตามเลขประจำตัวผู้เสียภาษี",
         tags: ["JV"],
@@ -97,7 +96,6 @@ export const jv = new Elysia({ prefix: "/jv" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GM"],
       body: JVModel.RequestBodyApproveJV,
       detail: {
@@ -141,7 +139,6 @@ export const jv = new Elysia({ prefix: "/jv" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GM"],
       body: JVModel.RequestBodyRejectJV,
       detail: {

@@ -1,8 +1,24 @@
-import { type TPlannerNotification } from "@/models/planner-notification.js"
+import { type ResolvedNotification } from "./rules/types.js"
+import { type RecipientKind, type WorkflowEventType } from "./types.js"
 
-export type NotificationDocument = TPlannerNotification & { _id: { toString(): string } }
+export interface StoredNotification {
+  _id: { toString(): string }
+  eventId: string
+  eventType: WorkflowEventType
+  accountId: string
+  recipientKind: RecipientKind
+  templateKey: string
+  title: string
+  body: string
+  sourceType: string
+  sourceId: string
+  sourceName?: string | null
+  data?: Partial<ResolvedNotification["data"]> | null
+  readAt?: Date | null
+  createdAt?: Date | null
+}
 
-export function toNotificationDto(notification: NotificationDocument) {
+export function toNotificationDto(notification: StoredNotification) {
   const jvTaxId = notification.data?.jvTaxId ? String(notification.data.jvTaxId) : undefined
   const resetJvTaxIds = Array.isArray(notification.data?.resetJvTaxIds)
     ? notification.data.resetJvTaxIds.map(String)

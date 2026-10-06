@@ -48,7 +48,6 @@ export const worthiness = new Elysia({ prefix: "/worthiness" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["PLANNER", "SUPERADMIN", "FINANCE"],
       query: worthinessModel.queriesWorth,
       detail: {
@@ -78,7 +77,6 @@ export const worthiness = new Elysia({ prefix: "/worthiness" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["PLANNER", "SUPERADMIN", "FINANCE"],
       detail: {
         description: "ดึงข้อมูลกำหนดความคุ้มค่าตาม Document ID",
@@ -110,7 +108,6 @@ export const worthiness = new Elysia({ prefix: "/worthiness" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["PLANNER", "SUPERADMIN", "FINANCE"],
       detail: {
         description: "ตรวจสอบสถานะเริ่มต้นสำหรับการดึงข้อมูลกำหนดความคุ้มค่า",
@@ -220,7 +217,6 @@ export const worthiness = new Elysia({ prefix: "/worthiness" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["PLANNER"],
       params: t.Object({
         documentId: t.String(),

@@ -1,11 +1,10 @@
+import { type ClientSession } from "mongoose"
 import { v7 } from "uuid"
 
+import { AuditLog } from "@/models/audit-log.js"
 import { type TPlanner } from "@/models/planner.js"
+import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
 
-import {
-  type WorkflowEventPersistence,
-  type WorkflowEventPersistenceOptions,
-} from "../../core/ports/workflow-event-persistence.port.js"
 import { type WorkflowEventPayload } from "../../core/types.js"
 
 type WorkflowEventTriggerAction = "EMP_SUMMARY_DONE" | "GA_ACTUAL_DONE" | "ALLOWANCE_RESOLVED"
@@ -144,21 +143,17 @@ export type WorkflowEvent =
       }
     }
 
-export type WorkflowEventDispatchContext = WorkflowEventPersistenceOptions
+export interface WorkflowEventDispatchContext {
+  /** The caller's transaction; the audit log and Outbox Event are saved inside it when given. */
+  session?: ClientSession | null
+}
 
 export interface WorkflowEventOutboxPublisher {
   publishOutboxById(outboxId: string): Promise<void>
 }
 
-export interface IWorkflowEventDispatcher {
-  dispatch(event: WorkflowEvent, context?: WorkflowEventDispatchContext): Promise<void>
-}
-
-export class WorkflowEventDispatcher implements IWorkflowEventDispatcher {
-  constructor(
-    private readonly store: WorkflowEventPersistence,
-    private readonly outboxPublisher: WorkflowEventOutboxPublisher
-  ) {}
+export class WorkflowEventDispatcher {
+  constructor(private readonly outboxPublisher: WorkflowEventOutboxPublisher) {}
 
   private static getPlannerGmApproverAccountIds(planner: TPlanner) {
     return [
@@ -506,8 +501,27 @@ export class WorkflowEventDispatcher implements IWorkflowEventDispatcher {
   }
 
   private async persistWorkflowEvent(event: WorkflowEventPayload, context?: WorkflowEventDispatchContext) {
-    await this.store.createAuditLog(event, context)
-    const outbox = await this.store.createWorkflowEventOutbox(event, context)
+    const saveOptions = context?.session ? { session: context.session } : undefined
+
+    await new AuditLog({
+      eventId: event.eventId,
+      eventType: event.eventType,
+      actorAccountId: event.actorAccountId,
+      sourceType: event.sourceType,
+      sourceId: event.sourceId,
+      sourceName: event.sourceName,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      fromStatuses: event.fromStatuses,
+      toStatuses: event.toStatuses,
+      metadata: event.metadata,
+    }).save(saveOptions)
+
+    const outbox = await new WorkflowEventOutbox({
+      eventId: event.eventId,
+      eventType: event.eventType,
+      payload: event,
+    }).save(saveOptions)
 
     queueMicrotask(async () => {
       try {

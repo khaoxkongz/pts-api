@@ -45,7 +45,6 @@ export const ga = new Elysia({ prefix: "/budget-control" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GA", "GM", "SUPERADMIN", "EMPLOYEE", "PLANNER", "FINANCE"],
       query: GAPlannerModel.queriesGAPlanners,
       detail: { description: "ดึงข้อมูล GA Planner ทั้งหมด", tags: ["Budget"] },
@@ -82,7 +81,6 @@ export const ga = new Elysia({ prefix: "/budget-control" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GA", "GM", "SUPERADMIN", "EMPLOYEE", "PLANNER", "FINANCE"],
       detail: { description: "ตรวจสอบการมีอยู่ของ GA Planner เริ่มต้น", tags: ["Budget"] },
     }
@@ -122,7 +120,6 @@ export const ga = new Elysia({ prefix: "/budget-control" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GA", "GM", "SUPERADMIN", "EMPLOYEE", "PLANNER", "FINANCE"],
       params: t.Object({
         documentId: t.String(),
@@ -175,7 +172,6 @@ export const ga = new Elysia({ prefix: "/budget-control" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GA"],
       params: t.Object({
         documentId: t.String(),
@@ -235,7 +231,6 @@ export const ga = new Elysia({ prefix: "/budget-control" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       requireRole: ["GA"],
       body: t.Object({
         documentId: t.String(),

@@ -40,6 +40,34 @@ export function verifySignedToken(signedToken: string, secret: string): string |
   return token
 }
 
+export interface SessionCredentials {
+  rawToken?: string | null
+  signedCookie?: string | null
+}
+
+export function requestSessionCredentials(request: {
+  headers: Record<string, string | undefined>
+  cookie: Record<string, { value?: unknown } | undefined>
+}): SessionCredentials {
+  return {
+    rawToken: request.headers["x-authorized-token"],
+    signedCookie: request.cookie.auth?.value as string | undefined,
+  }
+}
+
+// A sent raw (header) token wins over the signed cookie, with no fallback, even when it is empty (ADR-0001).
+export function sessionTokenFrom(credentials: SessionCredentials, secret: string): string | null {
+  if (typeof credentials.rawToken === "string") {
+    return credentials.rawToken || null
+  }
+
+  if (!credentials.signedCookie) {
+    return null
+  }
+
+  return verifySignedToken(credentials.signedCookie, secret)
+}
+
 /**
  * สร้าง signed token (token.signature)
  */

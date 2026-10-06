@@ -1,15 +1,7 @@
-import { defineNotificationRulesConfig } from "./config-utils.js"
+import { validateNotificationRulesConfig } from "./config-utils.js"
 import { type NotificationRulesConfig } from "./types.js"
 
 const config = {
-  recipientPriority: {
-    GA: 1,
-    EMPLOYEE: 2,
-    SUPERVISOR: 3,
-    PLANNER: 4,
-    FINANCE: 5,
-    GM_APPROVER: 6,
-  },
   events: {
     PLANNER_CREATED: {
       mode: "notify",
@@ -228,4 +220,4 @@ const config = {
   },
 } satisfies NotificationRulesConfig
 
-export const notificationRulesConfig = defineNotificationRulesConfig(config)
+export const notificationRulesConfig = validateNotificationRulesConfig(config)

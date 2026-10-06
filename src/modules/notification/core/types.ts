@@ -15,11 +15,6 @@ export type WorkflowEventType =
 
 export type RecipientKind = "GA" | "EMPLOYEE" | "SUPERVISOR" | "GM_APPROVER" | "PLANNER" | "FINANCE"
 
-export interface NotificationRecipient {
-  accountId: string
-  kind: RecipientKind
-}
-
 export interface WorkflowEventMetadata {
   documentId: string
   plannerName: string

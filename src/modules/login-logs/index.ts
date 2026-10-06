@@ -128,7 +128,7 @@ export const loginLogs = new Elysia({ prefix: "/login-logs" })
       }
     },
     {
-      isAuthWithToken: true,
+      isAuth: true,
       requireRole: ["SUPERADMIN"],
       body: LoginLogsModel.CreateTokenBody,
       response: { 201: LoginLogsModel.CreateTokenResponse, ...ADMIN_ERROR_RESPONSES },
@@ -163,7 +163,7 @@ export const loginLogs = new Elysia({ prefix: "/login-logs" })
       }
     },
     {
-      isAuthWithToken: true,
+      isAuth: true,
       requireRole: ["SUPERADMIN"],
       response: { 200: LoginLogsModel.TokenListResponse, ...ADMIN_ERROR_RESPONSES },
       detail: {
@@ -199,7 +199,7 @@ export const loginLogs = new Elysia({ prefix: "/login-logs" })
       }
     },
     {
-      isAuthWithToken: true,
+      isAuth: true,
       requireRole: ["SUPERADMIN"],
       params: t.Object({ id: t.String() }),
       response: { 200: LoginLogsModel.RevokeTokenResponse, ...ADMIN_ERROR_RESPONSES },
@@ -234,7 +234,7 @@ export const loginLogs = new Elysia({ prefix: "/login-logs" })
       }
     },
     {
-      isAuthWithToken: true,
+      isAuth: true,
       requireRole: ["SUPERADMIN"],
       query: LoginLogsModel.AccessLogQuery,
       response: { 200: LoginLogsModel.AccessLogListResponse, ...ADMIN_ERROR_RESPONSES },

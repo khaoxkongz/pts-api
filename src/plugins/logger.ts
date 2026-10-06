@@ -27,4 +27,10 @@ export const logger = new Elysia()
       consola.success(state.prefix, String(status), time)
     }
   })
+  .onError(({ code, error }) => {
+    // Elysia answers unexpected errors with a 500 but logs nothing; validation and NotFound are not logged.
+    if (code === "UNKNOWN" || code === "INTERNAL_SERVER_ERROR") {
+      consola.error(error)
+    }
+  })
   .as("scoped")

@@ -32,7 +32,6 @@ export const participant = new Elysia({ prefix: "/participants" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       body: ParticipantModel.confirmCancelBody,
       detail: {
         description:
@@ -65,7 +64,6 @@ export const participant = new Elysia({ prefix: "/participants" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       body: ParticipantModel.cancelByMonthBody,
       detail: {
         description:

@@ -9,7 +9,7 @@ import { type OneThAuth } from "@/types/one.js"
 import { type MemberType } from "../user/type.js"
 import { OneThAuthProvider } from "./oneth.provider.js"
 import { RaThAuthProvider } from "./rath.provider.js"
-import { createSignedToken } from "./utils.js"
+import { createSignedToken, sessionTokenFrom, type SessionCredentials } from "./utils.js"
 
 const ONE_DAY_MS = 1000 * 60 * 60 * 24
 
@@ -18,6 +18,20 @@ export const SESSION_CONFIG = {
   expiresIn: env.SESSION_EXPIRES_IN,
   updateAge: env.SESSION_UPDATE_AGE,
   disableRefresh: env.SESSION_DISABLE_REFRESH,
+}
+
+// The one session resolution path (ADR-0001). Database errors propagate: an outage is a 500, not a logout.
+export async function resolveSessionUser(credentials: SessionCredentials) {
+  const token = sessionTokenFrom(credentials, SESSION_CONFIG.secret)
+  if (!token) return null
+
+  const session = await Session.findOne({ token, expiresIn: { $gt: new Date() } }).lean()
+  if (!session) return null
+
+  const user = await User.findOne({ accountId: session.userId }).lean()
+  if (!user) return null
+
+  return { session, user }
 }
 
 export function login() {

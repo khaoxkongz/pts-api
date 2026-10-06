@@ -54,7 +54,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       query: PlannerModel.queriesPlanner,
       detail: {
         description: "ใช้สำหรับดูข้อมูลของแผนงานทั้งหมดที่เกี่ยวข้องกับผู้สร้างและผู้มีส่วนร่วมในแผนงาน",
@@ -97,7 +96,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       params: t.Object({
         documentId: t.String({ examples: "เลขที่เอกสารของแผนงานที่ต้องการดูข้อมูล" }),
       }),
@@ -142,7 +140,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       params: t.Object({ documentId: t.String() }),
       body: PlannerModel.cancelPlannerBody,
       response: {
@@ -286,7 +283,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       body: PlannerModel.createPlanner,
       detail: {
         description: "ใช้สำหรับสร้างแผนงานใหม่",
@@ -402,7 +398,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       params: t.Object({
         documentId: t.String({ examples: "เลขที่เอกสารของแผนงานที่ต้องการดูข้อมูล" }),
       }),
@@ -567,7 +562,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       params: t.Object({
         documentId: t.String({ examples: "เลขที่เอกสารของแผนงานที่ต้องการดูข้อมูล" }),
       }),
@@ -621,7 +615,6 @@ export const planner = new Elysia({ prefix: "/planner" })
     },
     {
       isAuth: true,
-      isAuthWithToken: true,
       detail: {
         description: "ใช้สำหรับดูจำนวนแผนงานที่ต้องดำเนินการ",
         tags: ["Planner"],
