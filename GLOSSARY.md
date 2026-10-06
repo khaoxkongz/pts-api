@@ -35,7 +35,7 @@ A message telling one account that something happened in a workflow, kept in tha
 _Avoid_: Planner notification, alert
 
 **Recipient Kind**:
-Why an account receives a notification: GA, Employee, Supervisor, GM Approver, Planner (role) or Finance.
+Why an account receives a notification: GA, Employee, Supervisor, GM Approver, Planner (role) or Finance. GA, Planner (role) and Finance always mean the account was notified because it holds that role.
 
 **Recipient Target**:
 A rule's description of who should be notified (such as the creator or the GM approvers); it resolves to accounts, each with a recipient kind.
