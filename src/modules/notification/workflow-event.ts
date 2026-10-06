@@ -5,7 +5,7 @@ import { AuditLog } from "@/models/audit-log.js"
 import { type TPlanner } from "@/models/planner.js"
 import { WorkflowEventOutbox } from "@/models/workflow-event-outbox.js"
 
-import { type WorkflowEventPayload } from "./type.js"
+import { type WorkflowEventMetadata, type WorkflowEventPayload } from "./type.js"
 
 type WorkflowEventTriggerAction = "EMP_SUMMARY_DONE" | "GA_ACTUAL_DONE" | "ALLOWANCE_RESOLVED"
 
@@ -168,48 +168,75 @@ function getParticipantEmployeeIds(planner: TPlanner) {
   return [...new Set((planner.participants ?? []).flatMap((p) => p.employeeId ?? []).filter(Boolean))]
 }
 
+/** Metadata that only some event types carry; the planner's identity and participants are added by `plannerEventPayload`. */
+type EventSpecificMetadata = Omit<
+  WorkflowEventMetadata,
+  "documentId" | "plannerName" | "participantAccountIds" | "participantEmployeeIds"
+>
+
+interface EventSpecificFields {
+  /** Defaults to the planner itself. */
+  targetType?: WorkflowEventPayload["targetType"]
+  /** Defaults to the planner's document id. */
+  targetId?: string
+  metadata?: EventSpecificMetadata
+  /**
+   * Metadata stored after the participant ids. Only PLANNER_CANCELLED uses it, so that its stored payload keeps
+   * the key order it has always had.
+   */
+  metadataAfterParticipants?: EventSpecificMetadata
+}
+
+function plannersOf(event: WorkflowEvent): { plannerBefore: TPlanner | null; plannerAfter: TPlanner } {
+  if (event.type === "PLANNER_CREATED") {
+    return { plannerBefore: null, plannerAfter: event.payload.planner }
+  }
+  return event.payload
+}
+
+/**
+ * Builds the envelope every Workflow Event shares: who acted, the planner it is about, its status change
+ * and its participants. A planner that was just created has no statuses before the change.
+ */
+function plannerEventPayload(event: WorkflowEvent, fields: EventSpecificFields = {}): WorkflowEventPayload {
+  const { plannerBefore, plannerAfter } = plannersOf(event)
+
+  return {
+    eventId: v7(),
+    eventType: event.type,
+    actorAccountId: event.meta.actorAccountId,
+    sourceType: "PLANNER",
+    sourceId: plannerAfter.documentId,
+    sourceName: plannerAfter.name,
+    targetType: fields.targetType ?? "PLANNER",
+    targetId: fields.targetId ?? plannerAfter.documentId,
+    fromStatuses: plannerBefore?.status.map(String) ?? [],
+    toStatuses: plannerAfter.status.map(String),
+    metadata: {
+      documentId: plannerAfter.documentId,
+      plannerName: plannerAfter.name,
+      ...fields.metadata,
+      participantAccountIds: getParticipantAccountIds(plannerAfter),
+      participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
+      ...fields.metadataAfterParticipants,
+    },
+  }
+}
+
 function mapToPayload(event: WorkflowEvent): WorkflowEventPayload {
   switch (event.type) {
     case "PLANNER_CREATED": {
-      const { planner } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "PLANNER_CREATED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: planner.documentId,
-        sourceName: planner.name,
-        targetType: "PLANNER",
-        targetId: planner.documentId,
-        fromStatuses: [],
-        toStatuses: planner.status.map(String),
-        metadata: {
-          documentId: planner.documentId,
-          plannerName: planner.name,
-          participantAccountIds: getParticipantAccountIds(planner),
-          participantEmployeeIds: getParticipantEmployeeIds(planner),
-        },
-      }
+      return plannerEventPayload(event)
     }
     case "GM_JV_REJECTED": {
       const { plannerBefore, plannerAfter } = event.payload
       const jvBefore = getPlannerJv(plannerBefore, event.meta.jvTaxId)
       const jvAfter = getPlannerJv(plannerAfter, event.meta.jvTaxId)
 
-      return {
-        eventId: v7(),
-        eventType: "GM_JV_REJECTED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
+      return plannerEventPayload(event, {
         targetType: "JV",
         targetId: event.meta.jvTaxId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           creatorAccountId: plannerAfter.createdBy,
           creatorEmployeeIds: plannerAfter.createdByEmployeeId.map(String),
           gmApproverAccountIds: getPlannerGmApproverAccountIds(plannerAfter).filter(
@@ -219,30 +246,18 @@ function mapToPayload(event: WorkflowEvent): WorkflowEventPayload {
           jvTaxId: event.meta.jvTaxId,
           targetStatusBefore: jvBefore?.status ? String(jvBefore.status) : "",
           targetStatusAfter: jvAfter?.status ? String(jvAfter.status) : "",
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "GM_JV_APPROVED": {
       const { plannerBefore, plannerAfter } = event.payload
       const jvBefore = getPlannerJv(plannerBefore, event.meta.jvTaxId)
       const jvAfter = getPlannerJv(plannerAfter, event.meta.jvTaxId)
 
-      return {
-        eventId: v7(),
-        eventType: "GM_JV_APPROVED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
+      return plannerEventPayload(event, {
         targetType: "JV",
         targetId: event.meta.jvTaxId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           jvTaxId: event.meta.jvTaxId,
           targetStatusBefore: jvBefore?.status ? String(jvBefore.status) : "",
           targetStatusAfter: jvAfter?.status ? String(jvAfter.status) : "",
@@ -254,13 +269,11 @@ function mapToPayload(event: WorkflowEvent): WorkflowEventPayload {
             percentage: jvAfter?.percentageRatio ?? 0,
             expense: jvAfter?.expenseRatio ?? 0,
           },
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "GM_JV_REAPPROVAL_REQUIRED": {
-      const { plannerBefore, plannerAfter } = event.payload
+      const { plannerAfter } = event.payload
       const resetApproverAccountIds = [
         ...new Set(
           plannerAfter.jvs
@@ -270,222 +283,98 @@ function mapToPayload(event: WorkflowEvent): WorkflowEventPayload {
         ),
       ]
 
-      return {
-        eventId: v7(),
-        eventType: "GM_JV_REAPPROVAL_REQUIRED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           jvTaxId: event.meta.triggeringJvTaxId,
           resetJvTaxIds: event.meta.resetJvTaxIds,
           resetApproverAccountIds,
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "PLANNER_FULLY_APPROVED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "PLANNER_FULLY_APPROVED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           creatorAccountId: plannerAfter.createdBy,
           creatorEmployeeIds: plannerAfter.createdByEmployeeId.map(String),
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "GA_ESTIMATE_CONFIRMED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "GA_ESTIMATE_CONFIRMED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           creatorEmployeeIds: plannerAfter.createdByEmployeeId.map(String),
           gmApproverAccountIds: getPlannerGmApproverAccountIds(plannerAfter),
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "GA_ACTUAL_CONFIRMED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "GA_ACTUAL_CONFIRMED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           actualBudgetItemCount: plannerAfter.actualBudget.length,
           triggerAction: "GA_ACTUAL_DONE",
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "PLANNER_ANALYSIS_COMPLETED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "PLANNER_ANALYSIS_COMPLETED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           gmApproverAccountIds: getPlannerGmApproverAccountIds(plannerAfter),
           worthinessValue: plannerAfter.worthiness?.worthiness ?? "",
           worthinessReason: plannerAfter.worthiness?.reason ?? "",
           worthinessHasFile: (plannerAfter.worthiness?.files?.length ?? 0) > 0,
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "ALLOWANCE_CLAIM_CANCELLED":
     case "ALLOWANCE_CLAIM_REJECTED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: event.type,
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
+      return plannerEventPayload(event, {
         targetId: event.meta.transactionId || event.meta.affectedParticipantAccountId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           affectedParticipantAccountId: event.meta.affectedParticipantAccountId,
           affectedParticipantEmployeeId: event.meta.affectedParticipantEmployeeId,
           transactionId: event.meta.transactionId,
           pendingConfirmExpireAt: event.meta.pendingConfirmExpireAt.toISOString(),
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "EMPLOYEE_SUMMARY_SUBMITTED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "EMPLOYEE_SUMMARY_SUBMITTED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           actualBudgetItemCount: plannerAfter.actualBudget.length,
           outcomeHasFile: (plannerAfter.outcome?.supportingDocuments?.length ?? 0) > 0,
           triggerAction: "EMP_SUMMARY_DONE",
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "PLANNER_READY_FOR_ANALYSIS": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "PLANNER_READY_FOR_ANALYSIS",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           creatorEmployeeIds: plannerAfter.createdByEmployeeId.map(String),
           gmApproverAccountIds: getPlannerGmApproverAccountIds(plannerAfter),
           triggerAction: event.meta.triggerAction,
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
         },
-      }
+      })
     }
     case "PLANNER_CANCELLED": {
-      const { plannerBefore, plannerAfter } = event.payload
-      return {
-        eventId: v7(),
-        eventType: "PLANNER_CANCELLED",
-        actorAccountId: event.meta.actorAccountId,
-        sourceType: "PLANNER",
-        sourceId: plannerAfter.documentId,
-        sourceName: plannerAfter.name,
-        targetType: "PLANNER",
-        targetId: plannerAfter.documentId,
-        fromStatuses: plannerBefore.status.map(String),
-        toStatuses: plannerAfter.status.map(String),
+      const { plannerAfter } = event.payload
+      return plannerEventPayload(event, {
         metadata: {
-          documentId: plannerAfter.documentId,
-          plannerName: plannerAfter.name,
           creatorAccountId: plannerAfter.createdBy,
           creatorEmployeeIds: plannerAfter.createdByEmployeeId.map(String),
           gmApproverAccountIds: getPlannerGmApproverAccountIds(plannerAfter),
-          participantAccountIds: getParticipantAccountIds(plannerAfter),
-          participantEmployeeIds: getParticipantEmployeeIds(plannerAfter),
+        },
+        metadataAfterParticipants: {
           cancellationReason: event.meta.reason,
           notifyGa: event.meta.notifyGa,
           notifyGm: event.meta.notifyGm,
         },
-      }
+      })
     }
     default: {
       return event satisfies never
