@@ -2,17 +2,12 @@ import { Elysia } from "elysia"
 
 import { session } from "@/plugins/session.js"
 
-import { type NotificationReader } from "../core/ports/notification-reader.port.js"
-import { type NotificationWriter } from "../core/ports/notification-writer.port.js"
 import { type PushHub } from "../core/ports/push-hub.port.js"
-import { type notificationInboxQuery } from "../use-cases/queries/notification-inbox.query.js"
+import { Inbox } from "../inbox.js"
 import { type streamAuthService } from "../use-cases/services/stream-auth.service.js"
 import { NotificationSchema } from "./notification.schema.js"
 
 export interface NotificationRoutesDeps {
-  listNotifications: ReturnType<typeof notificationInboxQuery>
-  notificationReader: NotificationReader
-  notificationWriter: NotificationWriter
   streamAuthService: ReturnType<typeof streamAuthService>
   pushHub: PushHub
 }
@@ -28,7 +23,7 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const data = await deps.listNotifications(user.accountId, query.page, query.pageSize)
+        const data = await Inbox.listPage(user.accountId, query.page, query.pageSize)
 
         return status(200, {
           success: true,
@@ -55,7 +50,7 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const unreadCount = await deps.notificationReader.countUnreadNotifications(user.accountId)
+        const unreadCount = await Inbox.countUnread(user.accountId)
 
         return status(200, { success: true, data: { unreadCount } })
       },
@@ -76,7 +71,7 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const notification = await deps.notificationWriter.markNotificationAsRead(user.accountId, params.notificationId)
+        const notification = await Inbox.markRead(user.accountId, params.notificationId)
 
         if (!notification) {
           return status(404, { success: false, message: "ไม่พบการแจ้งเตือนที่ระบุ" })
@@ -102,7 +97,7 @@ export function notificationRoutes(deps: NotificationRoutesDeps) {
           return status(401, { success: false, message: "Cookie Token หมดอายุ หรือ ไม่ถูกต้อง" })
         }
 
-        const modifiedCount = await deps.notificationWriter.markAllNotificationsAsRead(user.accountId)
+        const modifiedCount = await Inbox.markAllRead(user.accountId)
 
         return status(200, { success: true, message: `ทำเครื่องหมายว่าอ่านแล้ว ${modifiedCount} รายการ` })
       },

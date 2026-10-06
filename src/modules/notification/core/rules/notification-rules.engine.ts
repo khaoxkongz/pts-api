@@ -10,11 +10,7 @@ import {
   type StatusGuard,
 } from "./types.js"
 
-export interface NotificationRulesEngine {
-  evaluate(event: WorkflowEventPayload): Promise<ResolvedNotification[]>
-}
-
-export class DefaultNotificationRulesEngine implements NotificationRulesEngine {
+export class NotificationRulesEngine {
   constructor(
     private readonly recipientResolver: RecipientResolver,
     private readonly config: NotificationRulesConfig = notificationRulesConfig
@@ -27,14 +23,14 @@ export class DefaultNotificationRulesEngine implements NotificationRulesEngine {
       return []
     }
 
-    if (!DefaultNotificationRulesEngine.matchesGuards(event, definition.guards)) {
+    if (!NotificationRulesEngine.matchesGuards(event, definition.guards)) {
       return []
     }
 
     const recipients = await this.resolveTargets(event, definition.targets)
 
     return recipients.map((recipient) =>
-      DefaultNotificationRulesEngine.buildResolvedNotification(event, definition, recipient)
+      NotificationRulesEngine.buildResolvedNotification(event, definition, recipient)
     )
   }
 
@@ -43,15 +39,15 @@ export class DefaultNotificationRulesEngine implements NotificationRulesEngine {
       return true
     }
 
-    return guards.some((guard) => DefaultNotificationRulesEngine.matchesGuard(event, guard))
+    return guards.some((guard) => NotificationRulesEngine.matchesGuard(event, guard))
   }
 
   private static matchesGuard(event: WorkflowEventPayload, guard: StatusGuard) {
     return (
-      DefaultNotificationRulesEngine.includesAll(event.fromStatuses, guard.fromStatusesAllOf) &&
-      DefaultNotificationRulesEngine.includesNone(event.fromStatuses, guard.fromStatusesNoneOf) &&
-      DefaultNotificationRulesEngine.includesAll(event.toStatuses, guard.toStatusesAllOf) &&
-      DefaultNotificationRulesEngine.includesNone(event.toStatuses, guard.toStatusesNoneOf)
+      NotificationRulesEngine.includesAll(event.fromStatuses, guard.fromStatusesAllOf) &&
+      NotificationRulesEngine.includesNone(event.fromStatuses, guard.fromStatusesNoneOf) &&
+      NotificationRulesEngine.includesAll(event.toStatuses, guard.toStatusesAllOf) &&
+      NotificationRulesEngine.includesNone(event.toStatuses, guard.toStatusesNoneOf)
     )
   }
 
@@ -147,15 +143,15 @@ export class DefaultNotificationRulesEngine implements NotificationRulesEngine {
     definition: NotificationRuleDefinition,
     recipient: ResolvedRecipient
   ): ResolvedNotification {
-    const content = DefaultNotificationRulesEngine.selectContentVariant(event, definition.content, recipient)
+    const content = NotificationRulesEngine.selectContentVariant(event, definition.content, recipient)
 
     return {
       accountId: recipient.accountId,
       recipientKind: recipient.kind,
       eventType: event.eventType,
-      templateKey: DefaultNotificationRulesEngine.interpolate(content.templateKey, event, recipient),
-      title: DefaultNotificationRulesEngine.interpolate(content.title, event, recipient),
-      body: DefaultNotificationRulesEngine.interpolate(content.body, event, recipient),
+      templateKey: NotificationRulesEngine.interpolate(content.templateKey, event, recipient),
+      title: NotificationRulesEngine.interpolate(content.title, event, recipient),
+      body: NotificationRulesEngine.interpolate(content.body, event, recipient),
       sourceType: event.sourceType,
       sourceId: event.sourceId,
       sourceName: event.sourceName,
@@ -180,7 +176,7 @@ export class DefaultNotificationRulesEngine implements NotificationRulesEngine {
     recipient: ResolvedRecipient
   ) {
     const matchingVariant = contentVariants.find((variant) =>
-      DefaultNotificationRulesEngine.matchesContentVariant(event, variant, recipient)
+      NotificationRulesEngine.matchesContentVariant(event, variant, recipient)
     )
 
     if (matchingVariant) {
