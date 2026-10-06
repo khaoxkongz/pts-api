@@ -28,9 +28,9 @@ const EnvSchema = z.object({
   ALLOWANCE_API_PASS: z.string().default(""),
   ALLOWANCE_API_TIMEOUT_MS: z.coerce.number().min(1000).max(120_000).default(15_000),
   REJECT_SWEEP_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(600_000),
-  OUTBOX_RELAY_INTERVAL_MS: z.coerce.number().min(1_000).max(86_400_000).default(60_000),
+  OUTBOX_RELAY_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(60_000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(1_000).default(10),
-  OUTBOX_LEASE_MS: z.coerce.number().min(1_000).max(86_400_000).default(300_000),
+  OUTBOX_LEASE_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(300_000),
 })
 
 export type Env = z.infer<typeof EnvSchema>
