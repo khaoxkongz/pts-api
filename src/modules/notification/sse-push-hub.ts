@@ -35,10 +35,12 @@ export class SsePushHub implements PushHub {
         sends.add(send)
         this.sendsByAccount.set(accountId, sends)
 
+        // Safe to call more than once. Drops the account only while its stored set is this one, so a stale
+        // stop never removes a set a newer stream created after this one emptied.
         stop = () => {
           clearInterval(heartbeat)
           sends.delete(send)
-          if (sends.size === 0) {
+          if (sends.size === 0 && this.sendsByAccount.get(accountId) === sends) {
             this.sendsByAccount.delete(accountId)
           }
         }

@@ -45,6 +45,9 @@ export interface SessionCredentials {
   signedCookie?: string | null
 }
 
+// The header a client sends its raw session token in.
+export const SESSION_TOKEN_HEADER = "x-authorized-token"
+
 // The raw token is the x-authorized-token header when sent (even when empty). Only a route that passes
 // queryToken (the notification stream, since a browser EventSource cannot send headers) falls back to
 // ?token=; every other route ignores it, so session tokens stay out of URLs (ADR-0001).
@@ -54,7 +57,7 @@ export function requestSessionCredentials(request: {
   queryToken?: string | undefined
 }): SessionCredentials {
   return {
-    rawToken: request.headers["x-authorized-token"] ?? request.queryToken,
+    rawToken: request.headers[SESSION_TOKEN_HEADER] ?? request.queryToken,
     signedCookie: request.cookie.auth?.value as string | undefined,
   }
 }

@@ -15,12 +15,12 @@ export interface ResolvedRecipient {
   kind: RecipientKind
 }
 
-/** The Recipient Kinds that mean "notified because the account holds that role". */
+// The Recipient Kinds that mean "notified because the account holds that role".
 export type RecipientRole = Extract<RecipientKind, "GA" | "PLANNER" | "FINANCE">
 
 export interface RecipientResolver {
   resolveAccountRecipients(accountIds: string[], kind: RecipientKind): Promise<ResolvedRecipient[]>
-  /** Resolves every account holding `role`; each recipient's Recipient Kind is that role. */
+  // Resolves every account holding `role`; each recipient's Recipient Kind is that role.
   resolveRoleRecipients(role: RecipientRole): Promise<ResolvedRecipient[]>
   resolveSupervisorRecipients(subordinateEmployeeIds: string[]): Promise<ResolvedRecipient[]>
 }
