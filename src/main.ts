@@ -14,6 +14,7 @@ import { jv } from "./modules/jv/index.js"
 import { location } from "./modules/location/index.js"
 import { loginLogs } from "./modules/login-logs/index.js"
 import { notification } from "./modules/notification/index.js"
+import { startOutboxRelay, stopOutboxRelay } from "./modules/notification/outbox-relay.js"
 import { participant } from "./modules/participant/index.js"
 import { startRejectSweep, stopRejectSweep } from "./modules/participant/sweep.js"
 import { planner } from "./modules/planner/index.js"
@@ -63,10 +64,12 @@ const app = new Elysia({ adapter: node() })
 console.log(`🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`)
 
 startRejectSweep(env.REJECT_SWEEP_INTERVAL_MS)
+startOutboxRelay(env.OUTBOX_RELAY_INTERVAL_MS, env.OUTBOX_MAX_ATTEMPTS)
 
 function shutdown(signal: string): void {
   console.log(`Received ${signal}, shutting down`)
   stopRejectSweep()
+  stopOutboxRelay()
   process.exit(0)
 }
 
