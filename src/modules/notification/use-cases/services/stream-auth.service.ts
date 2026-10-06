@@ -1,11 +1,10 @@
-import { type SessionTokenVerifier } from "../../adapters/auth/session-token-verifier.js"
-import { type PushHub } from "../../core/ports/push-hub.port.js"
+import { verifySignedToken } from "@/modules/auth/utils.js"
+
 import { type StreamAuth } from "../../core/ports/stream-auth.port.js"
 
 export interface StreamAuthServiceDeps {
   streamAuth: StreamAuth
-  sessionTokenVerifier: SessionTokenVerifier
-  pushHub: PushHub
+  sessionSecret: string
 }
 
 export function streamAuthService(deps: StreamAuthServiceDeps) {
@@ -23,7 +22,7 @@ export function streamAuthService(deps: StreamAuthServiceDeps) {
         return null
       }
 
-      const token = deps.sessionTokenVerifier.verify(params.signedToken)
+      const token = verifySignedToken(params.signedToken, deps.sessionSecret)
       if (!token) {
         return null
       }
@@ -33,10 +32,6 @@ export function streamAuthService(deps: StreamAuthServiceDeps) {
         return null
       }
       return await deps.streamAuth.findUserByAccountId(session.userId)
-    },
-
-    createStreamResponse(accountId: string) {
-      return deps.pushHub.createStreamResponse(accountId)
     },
   }
 }

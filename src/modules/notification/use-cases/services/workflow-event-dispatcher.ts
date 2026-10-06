@@ -150,11 +150,7 @@ export interface WorkflowEventOutboxPublisher {
   publishOutboxById(outboxId: string): Promise<void>
 }
 
-export interface IWorkflowEventDispatcher {
-  dispatch(event: WorkflowEvent, context?: WorkflowEventDispatchContext): Promise<void>
-}
-
-export class WorkflowEventDispatcher implements IWorkflowEventDispatcher {
+export class WorkflowEventDispatcher {
   constructor(
     private readonly store: WorkflowEventPersistence,
     private readonly outboxPublisher: WorkflowEventOutboxPublisher

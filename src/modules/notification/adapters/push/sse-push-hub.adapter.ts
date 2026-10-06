@@ -2,7 +2,7 @@ import { type ReadableStreamController } from "node:stream/web"
 
 import { type PushHub } from "../../core/ports/push-hub.port.js"
 
-export interface Subscriber {
+interface Subscriber {
   close: () => void
   send: (event: string, data: unknown) => void
 }

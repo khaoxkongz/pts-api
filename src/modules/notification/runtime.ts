@@ -1,6 +1,5 @@
 import env from "@/env.js"
 
-import { HmacSessionTokenVerifier } from "./adapters/auth/session-token-verifier.js"
 import { MongoNotificationDeliveryRepository } from "./adapters/persistence/mongo-notification-delivery.repository.js"
 import { MongoNotificationReaderRepository } from "./adapters/persistence/mongo-notification-reader.repository.js"
 import { MongoNotificationWriterRepository } from "./adapters/persistence/mongo-notification-writer.repository.js"
@@ -21,7 +20,7 @@ export const notification = notificationModule({
   notificationReader: MongoNotificationReaderRepository,
   notificationWriter: MongoNotificationWriterRepository,
   streamAuth: MongoStreamAuthRepository,
-  sessionTokenVerifier: new HmacSessionTokenVerifier(env.SESSION_SECRET),
+  sessionSecret: env.SESSION_SECRET,
   pushHub,
 })
 
@@ -34,9 +33,3 @@ const publishOutboxEvent = publishOutboxEventCommand({
 export const workflowEventDispatcher = new WorkflowEventDispatcher(MongoWorkflowEventRepository, {
   publishOutboxById: (outboxId: string) => publishOutboxEvent(outboxId),
 })
-
-export type {
-  IWorkflowEventDispatcher,
-  WorkflowEvent,
-  WorkflowEventDispatchContext,
-} from "./use-cases/services/workflow-event-dispatcher.js"

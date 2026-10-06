@@ -20,14 +20,6 @@ export class DefaultNotificationRulesEngine implements NotificationRulesEngine {
     private readonly config: NotificationRulesConfig = notificationRulesConfig
   ) {}
 
-  public getDefinition(eventType: WorkflowEventPayload["eventType"]) {
-    return this.config.events[eventType]
-  }
-
-  public getRecipientPriority() {
-    return this.config.recipientPriority
-  }
-
   public async evaluate(event: WorkflowEventPayload): Promise<ResolvedNotification[]> {
     const definition = this.config.events[event.eventType]
 

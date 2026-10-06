@@ -69,7 +69,3 @@ export function validateNotificationRulesConfig(config: NotificationRulesConfig)
 
   return config
 }
-
-export function defineNotificationRulesConfig(config: NotificationRulesConfig) {
-  return validateNotificationRulesConfig(config)
-}
