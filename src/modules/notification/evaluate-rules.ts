@@ -14,11 +14,13 @@ export interface ResolvedRecipient {
   kind: RecipientKind
 }
 
-export type RecipientRole = "GA" | "PLANNER" | "FINANCE"
+/** The Recipient Kinds that mean "notified because the account holds that role". */
+export type RecipientRole = Extract<RecipientKind, "GA" | "PLANNER" | "FINANCE">
 
 export interface RecipientResolver {
   resolveAccountRecipients(accountIds: string[], kind: RecipientKind): Promise<ResolvedRecipient[]>
-  resolveRoleRecipients(role: RecipientRole, kind: RecipientKind): Promise<ResolvedRecipient[]>
+  /** Resolves every account holding `role`; each recipient's Recipient Kind is that role. */
+  resolveRoleRecipients(role: RecipientRole): Promise<ResolvedRecipient[]>
   resolveSupervisorRecipients(subordinateEmployeeIds: string[]): Promise<ResolvedRecipient[]>
 }
 
@@ -78,13 +80,13 @@ async function resolveTarget(
 ): Promise<ResolvedRecipient[]> {
   switch (target) {
     case "ROLE:GA": {
-      return await recipients.resolveRoleRecipients("GA", "GA")
+      return await recipients.resolveRoleRecipients("GA")
     }
     case "ROLE:PLANNER": {
-      return await recipients.resolveRoleRecipients("PLANNER", "PLANNER")
+      return await recipients.resolveRoleRecipients("PLANNER")
     }
     case "ROLE:FINANCE": {
-      return await recipients.resolveRoleRecipients("FINANCE", "FINANCE")
+      return await recipients.resolveRoleRecipients("FINANCE")
     }
     case "SUPERVISOR": {
       const creatorIds = event.metadata.creatorEmployeeIds ?? []
@@ -121,7 +123,7 @@ async function resolveTarget(
           ),
           "EMPLOYEE"
         ),
-        event.metadata.notifyGa ? recipients.resolveRoleRecipients("GA", "GA") : Promise.resolve([]),
+        event.metadata.notifyGa ? recipients.resolveRoleRecipients("GA") : Promise.resolve([]),
         event.metadata.notifyGm
           ? recipients.resolveAccountRecipients(event.metadata.gmApproverAccountIds ?? [], "GM_APPROVER")
           : Promise.resolve([]),

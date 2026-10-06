@@ -46,9 +46,9 @@ class FakeRecipientResolver implements RecipientResolver {
     return this.users.filter((user) => wanted.has(user.accountId)).map((user) => ({ accountId: user.accountId, kind }))
   }
 
-  public async resolveRoleRecipients(role: RecipientRole, kind: RecipientKind): Promise<ResolvedRecipient[]> {
+  public async resolveRoleRecipients(role: RecipientRole): Promise<ResolvedRecipient[]> {
     this.throwIfFailing()
-    return this.users.filter((user) => user.role === role).map((user) => ({ accountId: user.accountId, kind }))
+    return this.users.filter((user) => user.role === role).map((user) => ({ accountId: user.accountId, kind: role }))
   }
 
   public async resolveSupervisorRecipients(subordinateEmployeeIds: string[]): Promise<ResolvedRecipient[]> {

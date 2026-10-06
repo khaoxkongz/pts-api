@@ -18,12 +18,12 @@ export const MongoRecipientResolver: RecipientResolver = {
     return users.map((user) => ({ accountId: user.accountId, kind }))
   },
 
-  async resolveRoleRecipients(role: RecipientRole, kind: RecipientKind): Promise<ResolvedRecipient[]> {
+  async resolveRoleRecipients(role: RecipientRole): Promise<ResolvedRecipient[]> {
     const users = await User.find({ role }).select("accountId").lean()
 
     return users.map((user) => ({
       accountId: user.accountId,
-      kind,
+      kind: role,
     }))
   },
 
