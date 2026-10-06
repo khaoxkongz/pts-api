@@ -123,13 +123,15 @@ class FakeOutboxEvents implements OutboxEvents {
   }
 
   public async markPublished(outboxId: string) {
-    const event = this.outboxEvent(outboxId)
+    const event = this.processingEvent(outboxId)
+    if (!event) return
     event.lastError = ""
     this.transition(event, "PUBLISHED")
   }
 
   public async markFailed(outboxId: string, error: unknown) {
-    const event = this.outboxEvent(outboxId)
+    const event = this.processingEvent(outboxId)
+    if (!event) return
     event.lastError = error instanceof Error ? error.message : String(error)
     this.transition(event, "FAILED")
   }
@@ -140,6 +142,13 @@ class FakeOutboxEvents implements OutboxEvents {
       .filter(([, event]) => this.isLockable(event) && event.attempts < maxAttempts)
       .slice(0, limit)
       .map(([outboxId]) => outboxId)
+  }
+
+  // The same rule as the Mongo adapter's mark filter: a holder only records its outcome while the event is
+  // still processing, so a holder whose lease expired can't undo a newer outcome.
+  private processingEvent(outboxId: string) {
+    const event = this.events.get(outboxId)
+    return event?.status === "PROCESSING" ? event : null
   }
 
   // The same rule as the Mongo adapter's lock filter. A processing event with no lock timestamp
@@ -164,9 +173,18 @@ class FakeNotificationStore implements NotificationStore {
   public readonly notifications = new Map<string, StoredNotification>()
   /** When set, the next save stores this many notifications and then fails. */
   public failSaveAfter: number | null = null
-  /** When set, the next save stores this many notifications and then never finishes, like a process that died. */
+  /**
+   * When set, the next save stores this many notifications and then never finishes, like a process that died,
+   * unless failStalledSave is called.
+   */
   public stallSaveAfter: number | null = null
+  private failStalled: ((error: Error) => void) | null = null
   private nextId = 1
+
+  /** Makes the stalled save fail now, like a publish that outlived its lease and then failed. */
+  public failStalledSave() {
+    this.failStalled?.(new Error("notification store unavailable"))
+  }
 
   public savedNotifications() {
     return [...this.notifications.values()]
@@ -184,7 +202,9 @@ class FakeNotificationStore implements NotificationStore {
         throw new Error("notification store unavailable")
       }
       if (stallAfter !== null && index >= stallAfter) {
-        return new Promise<never>(() => {})
+        return new Promise<never>((_, reject) => {
+          this.failStalled = reject
+        })
       }
 
       const key = `${event.eventId}|${notification.accountId}|${notification.recipientKind}`
@@ -765,6 +785,25 @@ describe("relaying due Outbox Events", () => {
       expect(outbox.outboxEvent("below-cap")).toMatchObject({ status: "PUBLISHED", attempts: 3 })
       expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-3"]))
       expect(pushHub.pushes).toHaveLength(2)
+    })
+
+    it("keeps an Outbox Event published when a publish whose lease expired fails afterwards", async () => {
+      const { outbox, notifications, publish, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      notifications.stallSaveAfter = 1
+      const stalePublish = publish("outbox-1")
+      await vi.waitFor(() => expect(notifications.savedNotifications()).toHaveLength(1))
+      outbox.now = new Date(outbox.now.getTime() + leaseMs + 1)
+      await relay()
+
+      notifications.failStalledSave()
+
+      await expect(stalePublish).rejects.toThrow("notification store unavailable")
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+        status: "PUBLISHED",
+        lastError: "",
+        statusHistory: ["PENDING", "PROCESSING", "PROCESSING", "PUBLISHED"],
+      })
     })
 
     it("stops taking an Outbox Event whose publish keeps dying once its attempts reach the cap", async () => {

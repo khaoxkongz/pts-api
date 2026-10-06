@@ -64,9 +64,11 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
       return outbox ? (outbox.payload as WorkflowEventPayload) : null
     },
 
+    // Marks only apply while the Outbox Event is still processing, so a holder whose lease expired can't
+    // overwrite the outcome a newer attempt already recorded.
     async markPublished(outboxId: string) {
       await WorkflowEventOutbox.updateOne(
-        { _id: outboxId },
+        { _id: outboxId, status: "PROCESSING" },
         {
           $set: {
             status: "PUBLISHED",
@@ -79,7 +81,7 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
 
     async markFailed(outboxId: string, error: unknown) {
       await WorkflowEventOutbox.updateOne(
-        { _id: outboxId },
+        { _id: outboxId, status: "PROCESSING" },
         {
           $set: {
             status: "FAILED",
