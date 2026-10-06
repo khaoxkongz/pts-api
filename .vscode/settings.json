@@ -1,0 +1,29 @@
+{
+  "npm.scriptRunner": "vp",
+  "editor.defaultFormatter": "oxc.oxc-vscode",
+  "[javascript]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "oxc.fmt.disableNestedConfig": true,
+  "oxc.path.oxfmt": "./node_modules/vite-plus/bin/oxfmt",
+  "oxc.fmt.configPath": "./vite.config.ts",
+  "oxc.lint.run": "onSave",
+  "oxc.typeAware": false,
+  "js/ts.experimental.useTsgo": true,
+  "js/ts.trace.server": "off",
+  "js/ts.server.goMemLimit": "384MiB",
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.oxc": "explicit"
+  }
+}

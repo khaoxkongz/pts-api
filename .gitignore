@@ -1,0 +1,8 @@
+.env
+.env.test
+.DS_Store
+dist/
+upload/
+test-output/
+node_modules/
+.vitest/

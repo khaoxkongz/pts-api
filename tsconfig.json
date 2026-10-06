@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "rootDir": ".",
+
+    /* Base Options: */
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "ES2023",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    /* Strictness */
+    "strict": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+
+    /* If transpiling with TypeScript: */
+    "module": "NodeNext",
+    "sourceRoot": "./src",
+    "outDir": "./dist",
+    "sourceMap": true,
+
+    /* If your code doesn't run in the DOM: */
+    "lib": ["ES2023"],
+    "declaration": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "exclude": ["coverage", "node_modules", "dist"],
+  "tsc-alias": {
+    "resolveFullPaths": true
+  }
+}
