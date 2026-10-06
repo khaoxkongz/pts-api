@@ -264,7 +264,7 @@ function setup(users: FixtureUser[], { leaseMs = 5 * 60_000 }: { leaseMs?: numbe
     pushHub,
   })
 
-  const relay = (maxAttempts = 10) => relayDueOutboxEvents({ outbox, publish, maxAttempts, batchSize: 100 })
+  const relay = (maxAttempts = 10) => relayDueOutboxEvents({ outbox, publish, maxAttempts, limit: 100 })
 
   return { recipientResolver, outbox, notifications, pushHub, publish, relay }
 }
@@ -823,7 +823,7 @@ describe("relaying due Outbox Events", () => {
 
       const result = await relay(2)
 
-      expect(result.attempted).toBe(0)
+      expect(result.due).toBe(0)
       expect(outbox.outboxEvent("outbox-1")).toMatchObject({
         status: "PROCESSING",
         attempts: 2,
