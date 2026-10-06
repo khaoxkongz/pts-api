@@ -80,15 +80,15 @@ interface FakeOutboxEvent {
   attempts: number
   lastError: string
   statusHistory: OutboxStatus[]
-}
-
-// The same rule as the Mongo adapter's lock filter.
-function isLockable(event: FakeOutboxEvent) {
-  return event.status === "PENDING" || event.status === "FAILED"
+  lockedAt: Date | null
 }
 
 class FakeOutboxEvents implements OutboxEvents {
   public readonly events = new Map<string, FakeOutboxEvent>()
+  /** The fake's clock: lock stamps this time and leases are measured against it. */
+  public now = new Date("2026-10-06T10:00:00.000Z")
+
+  constructor(private readonly leaseMs: number) {}
 
   public addOutboxEvent(
     outboxId: string,
@@ -97,9 +97,10 @@ class FakeOutboxEvents implements OutboxEvents {
       status = "PENDING",
       attempts = 0,
       lastError = "",
-    }: Partial<Pick<FakeOutboxEvent, "status" | "attempts" | "lastError">> = {}
+      lockedAt = null,
+    }: Partial<Pick<FakeOutboxEvent, "status" | "attempts" | "lastError" | "lockedAt">> = {}
   ) {
-    this.events.set(outboxId, { status, payload, attempts, lastError, statusHistory: [status] })
+    this.events.set(outboxId, { status, payload, attempts, lastError, statusHistory: [status], lockedAt })
   }
 
   public outboxEvent(outboxId: string) {
@@ -112,9 +113,10 @@ class FakeOutboxEvents implements OutboxEvents {
 
   public async lock(outboxId: string) {
     const event = this.events.get(outboxId)
-    if (!event || !isLockable(event)) {
+    if (!event || !this.isLockable(event)) {
       return null
     }
+    event.lockedAt = this.now
     this.transition(event, "PROCESSING")
     return event.payload
   }
@@ -136,9 +138,21 @@ class FakeOutboxEvents implements OutboxEvents {
   // Insertion order stands in for creation time, so the first added is the oldest.
   public async findDue({ maxAttempts, limit }: FindDueOptions) {
     return [...this.events]
-      .filter(([, event]) => isLockable(event) && event.attempts < maxAttempts)
+      .filter(([, event]) => this.isLockable(event) && event.attempts < maxAttempts)
       .slice(0, limit)
       .map(([outboxId]) => outboxId)
+  }
+
+  // The same rule as the Mongo adapter's lock filter. A processing event with no lock timestamp
+  // was locked before leases existed, so its lease counts as expired.
+  private isLockable(event: FakeOutboxEvent) {
+    if (event.status === "PENDING" || event.status === "FAILED") {
+      return true
+    }
+    if (event.status !== "PROCESSING") {
+      return false
+    }
+    return event.lockedAt === null || event.lockedAt.getTime() < this.now.getTime() - this.leaseMs
   }
 
   private transition(event: FakeOutboxEvent, status: OutboxStatus) {
@@ -151,6 +165,8 @@ class FakeNotificationStore implements NotificationStore {
   public readonly notifications = new Map<string, StoredNotification>()
   /** When set, the next save stores this many notifications and then fails. */
   public failSaveAfter: number | null = null
+  /** When set, the next save stores this many notifications and then never finishes, like a process that died. */
+  public stallSaveAfter: number | null = null
   private nextId = 1
 
   public savedNotifications() {
@@ -159,12 +175,17 @@ class FakeNotificationStore implements NotificationStore {
 
   public async saveNotifications(event: WorkflowEventPayload, resolved: ResolvedNotification[]) {
     const failAfter = this.failSaveAfter
+    const stallAfter = this.stallSaveAfter
     this.failSaveAfter = null
+    this.stallSaveAfter = null
     const saved = new Map<string, StoredNotification>()
 
     for (const [index, notification] of resolved.entries()) {
       if (failAfter !== null && index >= failAfter) {
         throw new Error("notification store unavailable")
+      }
+      if (stallAfter !== null && index >= stallAfter) {
+        return new Promise<never>(() => {})
       }
 
       const key = `${event.eventId}|${notification.accountId}|${notification.recipientKind}`
@@ -212,9 +233,9 @@ class RecordingPushHub implements PushHub {
   }
 }
 
-function setup(users: FixtureUser[]) {
+function setup(users: FixtureUser[], { leaseMs = 5 * 60_000 }: { leaseMs?: number } = {}) {
   const recipientResolver = new FakeRecipientResolver(users)
-  const outbox = new FakeOutboxEvents()
+  const outbox = new FakeOutboxEvents(leaseMs)
   const notifications = new FakeNotificationStore()
   const pushHub = new RecordingPushHub()
   const publish = createOutboxEventPublisher({
@@ -343,7 +364,11 @@ describe("publishing an Outbox Event", () => {
 
     it.each(["PUBLISHED", "PROCESSING"] as const)("skips an event that is already %s", async (status) => {
       const { outbox, notifications, pushHub, publish } = setup(gaUsers)
-      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), { status })
+      // Locked just now, so a processing event is still inside its lease.
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), {
+        status,
+        lockedAt: outbox.now,
+      })
 
       await publish("outbox-1")
 
@@ -612,6 +637,135 @@ describe("relaying due Outbox Events", () => {
     expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-2", "event-3"]))
     expect(pushHub.pushes).toHaveLength(4)
     errorLog.mockRestore()
+  })
+
+  describe("a processing Outbox Event's lease", () => {
+    const leaseMs = 5 * 60_000
+    const lockedAt = new Date("2026-10-06T10:00:00.000Z")
+
+    it("takes a processing Outbox Event again once its lease has expired and publishes it", async () => {
+      const { outbox, notifications, pushHub, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), {
+        status: "PROCESSING",
+        lockedAt,
+      })
+      outbox.now = new Date(lockedAt.getTime() + leaseMs + 1)
+
+      await relay()
+
+      expect(notifications.savedNotifications().map((n) => n.accountId)).toEqual(["ga-1", "ga-2"])
+      expect(pushHub.pushes.map((p) => p.accountId)).toEqual(["ga-1", "ga-2"])
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+        status: "PUBLISHED",
+        attempts: 1,
+        statusHistory: ["PROCESSING", "PROCESSING", "PUBLISHED"],
+      })
+    })
+
+    it("leaves a processing Outbox Event alone while it is still inside its lease", async () => {
+      const { outbox, notifications, pushHub, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), {
+        status: "PROCESSING",
+        lockedAt,
+      })
+      outbox.now = new Date(lockedAt.getTime() + leaseMs - 1)
+
+      await relay()
+
+      expect(notifications.savedNotifications()).toEqual([])
+      expect(pushHub.pushes).toEqual([])
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({ attempts: 0, statusHistory: ["PROCESSING"] })
+    })
+
+    it("treats a processing Outbox Event with no lock timestamp as expired and publishes it", async () => {
+      const { outbox, notifications, pushHub, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), {
+        status: "PROCESSING",
+        lockedAt: null,
+      })
+
+      await relay()
+
+      expect(notifications.savedNotifications().map((n) => n.accountId)).toEqual(["ga-1", "ga-2"])
+      expect(pushHub.pushes.map((p) => p.accountId)).toEqual(["ga-1", "ga-2"])
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+        status: "PUBLISHED",
+        attempts: 1,
+        statusHistory: ["PROCESSING", "PROCESSING", "PUBLISHED"],
+      })
+    })
+
+    it("doesn't take an Outbox Event whose publish is still going inside its lease", async () => {
+      const { outbox, notifications, pushHub, publish, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      notifications.stallSaveAfter = 1
+      void publish("outbox-1")
+      await vi.waitFor(() => expect(notifications.savedNotifications()).toHaveLength(1))
+      outbox.now = new Date(outbox.now.getTime() + leaseMs - 1)
+
+      await relay()
+
+      expect(notifications.savedNotifications()).toHaveLength(1)
+      expect(pushHub.pushes).toEqual([])
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({ attempts: 0, statusHistory: ["PENDING", "PROCESSING"] })
+    })
+
+    it("re-pushes the notifications a dead publish already saved, without storing duplicates", async () => {
+      const { outbox, notifications, pushHub, publish, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      // The first publish saves one notification and then never finishes, as if its process died.
+      notifications.stallSaveAfter = 1
+      void publish("outbox-1")
+      await vi.waitFor(() => expect(notifications.savedNotifications()).toHaveLength(1))
+      const [savedBeforeDying] = notifications.savedNotifications()
+      expect(outbox.outboxEvent("outbox-1").status).toBe("PROCESSING")
+      outbox.now = new Date(outbox.now.getTime() + leaseMs + 1)
+
+      await relay()
+
+      const saved = notifications.savedNotifications()
+      expect(saved.map((n) => n.accountId)).toEqual(["ga-1", "ga-2"])
+      expect(saved).toContain(savedBeforeDying)
+      expect(pushHub.pushes.map((p) => p.payload.id)).toEqual([savedBeforeDying?._id, saved[1]?._id])
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
+        status: "PUBLISHED",
+        attempts: 1,
+        statusHistory: ["PENDING", "PROCESSING", "PROCESSING", "PUBLISHED"],
+      })
+    })
+
+    it("skips a processing Outbox Event with an expired lease once its attempts have reached the cap", async () => {
+      const { outbox, notifications, pushHub, relay } = setup(gaUsers, { leaseMs })
+      outbox.addOutboxEvent("at-cap", workflowEvent({ eventId: "event-1" }), {
+        status: "PROCESSING",
+        attempts: 3,
+        lastError: "notification store unavailable",
+        lockedAt,
+      })
+      outbox.addOutboxEvent("no-lock-at-cap", workflowEvent({ eventId: "event-2" }), {
+        status: "PROCESSING",
+        attempts: 3,
+        lockedAt: null,
+      })
+      outbox.addOutboxEvent("below-cap", workflowEvent({ eventId: "event-3" }), {
+        status: "PROCESSING",
+        attempts: 2,
+        lockedAt,
+      })
+      outbox.now = new Date(lockedAt.getTime() + leaseMs + 1)
+
+      await relay(3)
+
+      expect(outbox.outboxEvent("at-cap")).toMatchObject({
+        attempts: 3,
+        lastError: "notification store unavailable",
+        statusHistory: ["PROCESSING"],
+      })
+      expect(outbox.outboxEvent("no-lock-at-cap")).toMatchObject({ attempts: 3, statusHistory: ["PROCESSING"] })
+      expect(outbox.outboxEvent("below-cap")).toMatchObject({ status: "PUBLISHED", attempts: 3 })
+      expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-3"]))
+      expect(pushHub.pushes).toHaveLength(2)
+    })
   })
 
   it("marks an Audit-only Outbox Event published without notifying anyone, and doesn't pick it up again", async () => {
