@@ -1,15 +1,14 @@
-import { type OutboxEvents } from "./publish-outbox-event.js"
+import { type FindDueOptions, type OutboxEvents } from "./publish-outbox-event.js"
 
-export interface RelayDueOutboxEventsDeps {
+export interface RelayDueOutboxEventsDeps extends FindDueOptions {
   outbox: OutboxEvents
   // Publish-by-id: the same lock, publish and mark sequence as the dispatcher's immediate publish.
   publish: (outboxId: string) => Promise<void>
-  maxAttempts: number
-  batchSize: number
 }
 
 export interface RelayResult {
-  attempted: number
+  // Due ids found this tick; some may have been skipped because another attempt locked them first.
+  due: number
   failed: number
 }
 
@@ -18,7 +17,7 @@ export interface RelayResult {
  * publish-by-id does, and an event another attempt has already locked is skipped there.
  */
 export async function relayDueOutboxEvents(deps: RelayDueOutboxEventsDeps): Promise<RelayResult> {
-  const dueIds = await deps.outbox.findDue({ maxAttempts: deps.maxAttempts, limit: deps.batchSize })
+  const dueIds = await deps.outbox.findDue({ maxAttempts: deps.maxAttempts, limit: deps.limit })
   let failed = 0
 
   for (const outboxId of dueIds) {
@@ -31,5 +30,5 @@ export async function relayDueOutboxEvents(deps: RelayDueOutboxEventsDeps): Prom
     }
   }
 
-  return { attempted: dueIds.length, failed }
+  return { due: dueIds.length, failed }
 }

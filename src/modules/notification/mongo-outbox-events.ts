@@ -21,10 +21,9 @@ export async function createOutboxEvent(event: WorkflowEventPayload): Promise<st
 export interface MongoOutboxEventsOptions {
   // How long a lock lasts before another attempt may take the Outbox Event (OUTBOX_LEASE_MS).
   leaseMs: number
-  now?: () => Date
 }
 
-export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: MongoOutboxEventsOptions): OutboxEvents {
+export function createMongoOutboxEvents({ leaseMs }: MongoOutboxEventsOptions): OutboxEvents {
   // The Outbox Events lock may take: pending or failed, or processing with an expired lease. A processing
   // event with no lock timestamp was locked before leases existed, so its lease counts as expired
   // (`lockedAt: null` also matches a missing field). Find-due uses the same filter, so it never returns
@@ -41,7 +40,7 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
 
   return {
     async lock(outboxId: string) {
-      const lockedAt = now()
+      const lockedAt = new Date()
       const outbox = await WorkflowEventOutbox.findOneAndUpdate(
         {
           _id: outboxId,
@@ -52,6 +51,10 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
             status: "PROCESSING",
             lockedAt,
           },
+          // Counted on lock, so a publish that kills the process still uses up an attempt.
+          $inc: {
+            attempts: 1,
+          },
         },
         { new: true }
       ).lean()
@@ -60,17 +63,16 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
       return outbox ? (outbox.payload as WorkflowEventPayload) : null
     },
 
+    // Marks only apply while the Outbox Event is still processing, so a holder whose lease expired can't
+    // overwrite the outcome a newer attempt already recorded.
     async markPublished(outboxId: string) {
       await WorkflowEventOutbox.updateOne(
-        { _id: outboxId },
+        { _id: outboxId, status: "PROCESSING" },
         {
           $set: {
             status: "PUBLISHED",
-            publishedAt: now(),
+            publishedAt: new Date(),
             lastError: "",
-          },
-          $inc: {
-            attempts: 1,
           },
         }
       )
@@ -78,14 +80,11 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
 
     async markFailed(outboxId: string, error: unknown) {
       await WorkflowEventOutbox.updateOne(
-        { _id: outboxId },
+        { _id: outboxId, status: "PROCESSING" },
         {
           $set: {
             status: "FAILED",
             lastError: error instanceof Error ? error.message : String(error),
-          },
-          $inc: {
-            attempts: 1,
           },
         }
       )
@@ -94,7 +93,7 @@ export function createMongoOutboxEvents({ leaseMs, now = () => new Date() }: Mon
     async findDue({ maxAttempts, limit }: FindDueOptions) {
       const due = await WorkflowEventOutbox.find(
         {
-          ...lockableFilter(now()),
+          ...lockableFilter(new Date()),
           attempts: {
             $lt: maxAttempts,
           },

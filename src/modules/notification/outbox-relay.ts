@@ -1,8 +1,8 @@
 import { relayDueOutboxEvents } from "./relay-due-outbox-events.js"
 import { outboxRelayDeps } from "./runtime.js"
 
-// Due Outbox Events published per tick; the rest wait for the next tick.
-const BATCH_SIZE = 100
+// Due Outbox Events published per tick (find-due's limit); the rest wait for the next tick.
+const LIMIT_PER_TICK = 100
 
 let timer: ReturnType<typeof setInterval> | null = null
 let isRunning = false
@@ -12,9 +12,9 @@ async function tick(maxAttempts: number): Promise<void> {
   if (isRunning) return
   isRunning = true
   try {
-    const result = await relayDueOutboxEvents({ ...outboxRelayDeps, maxAttempts, batchSize: BATCH_SIZE })
-    if (result.attempted > 0) {
-      console.log(`[outbox-relay] retried ${result.attempted} due outbox event(s), ${result.failed} failed`)
+    const result = await relayDueOutboxEvents({ ...outboxRelayDeps, maxAttempts, limit: LIMIT_PER_TICK })
+    if (result.due > 0) {
+      console.log(`[outbox-relay] found ${result.due} due outbox event(s), ${result.failed} failed`)
     }
   } catch (error) {
     console.error("[outbox-relay] failed:", error)
