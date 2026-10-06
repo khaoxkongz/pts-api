@@ -2,7 +2,12 @@ import { describe, expect, it } from "vite-plus/test"
 
 import { type StoredNotification } from "./dto.js"
 import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
-import { type NotificationDelivery, type PushHub, createOutboxEventPublisher } from "./publish-outbox-event.js"
+import {
+  type NotificationStore,
+  type OutboxEvents,
+  type PushHub,
+  createOutboxEventPublisher,
+} from "./publish-outbox-event.js"
 import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
@@ -75,36 +80,58 @@ interface FakeOutboxEvent {
   statusHistory: OutboxStatus[]
 }
 
-class FakeNotificationDelivery implements NotificationDelivery {
-  public readonly outbox = new Map<string, FakeOutboxEvent>()
-  public readonly notifications = new Map<string, StoredNotification>()
-  /** When set, the next save stores this many notifications and then fails. */
-  public failSaveAfter: number | null = null
-  private nextId = 1
+class FakeOutboxEvents implements OutboxEvents {
+  public readonly events = new Map<string, FakeOutboxEvent>()
 
   public addOutboxEvent(outboxId: string, payload: WorkflowEventPayload, status: OutboxStatus = "PENDING") {
-    this.outbox.set(outboxId, { status, payload, attempts: 0, lastError: "", statusHistory: [status] })
+    this.events.set(outboxId, { status, payload, attempts: 0, lastError: "", statusHistory: [status] })
   }
 
   public outboxEvent(outboxId: string) {
-    const event = this.outbox.get(outboxId)
+    const event = this.events.get(outboxId)
     if (!event) {
       throw new Error(`No outbox event ${outboxId}`)
     }
     return event
   }
 
-  public savedNotifications() {
-    return [...this.notifications.values()]
-  }
-
-  public async lockOutboxEventAndGetWorkflowEvent(outboxId: string) {
-    const event = this.outbox.get(outboxId)
+  public async lock(outboxId: string) {
+    const event = this.events.get(outboxId)
     if (!event || (event.status !== "PENDING" && event.status !== "FAILED")) {
       return null
     }
     this.transition(event, "PROCESSING")
     return event.payload
+  }
+
+  public async markPublished(outboxId: string) {
+    const event = this.outboxEvent(outboxId)
+    event.attempts += 1
+    event.lastError = ""
+    this.transition(event, "PUBLISHED")
+  }
+
+  public async markFailed(outboxId: string, error: unknown) {
+    const event = this.outboxEvent(outboxId)
+    event.attempts += 1
+    event.lastError = error instanceof Error ? error.message : String(error)
+    this.transition(event, "FAILED")
+  }
+
+  private transition(event: FakeOutboxEvent, status: OutboxStatus) {
+    event.status = status
+    event.statusHistory.push(status)
+  }
+}
+
+class FakeNotificationStore implements NotificationStore {
+  public readonly notifications = new Map<string, StoredNotification>()
+  /** When set, the next save stores this many notifications and then fails. */
+  public failSaveAfter: number | null = null
+  private nextId = 1
+
+  public savedNotifications() {
+    return [...this.notifications.values()]
   }
 
   public async saveNotifications(event: WorkflowEventPayload, resolved: ResolvedNotification[]) {
@@ -146,25 +173,6 @@ class FakeNotificationDelivery implements NotificationDelivery {
 
     return [...saved.values()]
   }
-
-  public async updateOutboxStatusPublished(outboxId: string) {
-    const event = this.outboxEvent(outboxId)
-    event.attempts += 1
-    event.lastError = ""
-    this.transition(event, "PUBLISHED")
-  }
-
-  public async updateOutboxStatusFailed(outboxId: string, error: unknown) {
-    const event = this.outboxEvent(outboxId)
-    event.attempts += 1
-    event.lastError = error instanceof Error ? error.message : String(error)
-    this.transition(event, "FAILED")
-  }
-
-  private transition(event: FakeOutboxEvent, status: OutboxStatus) {
-    event.status = status
-    event.statusHistory.push(status)
-  }
 }
 
 interface RecordedPush {
@@ -183,15 +191,17 @@ class RecordingPushHub implements PushHub {
 
 function setup(users: FixtureUser[]) {
   const recipientResolver = new FakeRecipientResolver(users)
-  const delivery = new FakeNotificationDelivery()
+  const outbox = new FakeOutboxEvents()
+  const notifications = new FakeNotificationStore()
   const pushHub = new RecordingPushHub()
   const publish = createOutboxEventPublisher({
-    delivery,
+    outbox,
+    notifications,
     recipients: recipientResolver,
     pushHub,
   })
 
-  return { recipientResolver, delivery, pushHub, publish }
+  return { recipientResolver, outbox, notifications, pushHub, publish }
 }
 
 function summarize(notifications: StoredNotification[]) {
@@ -202,16 +212,16 @@ function summarize(notifications: StoredNotification[]) {
 
 describe("publishing an Outbox Event", () => {
   it("notifies every GA about a new planner, pushes each notification and marks the event published", async () => {
-    const { delivery, pushHub, publish } = setup([
+    const { outbox, notifications, pushHub, publish } = setup([
       { accountId: "ga-1", role: "GA" },
       { accountId: "ga-2", role: "GA" },
       { accountId: "emp-1", role: "EMPLOYEE" },
     ])
-    delivery.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
 
     await publish("outbox-1")
 
-    const saved = delivery.savedNotifications()
+    const saved = notifications.savedNotifications()
     expect(summarize(saved)).toEqual([
       { accountId: "ga-1", recipientKind: "GA", templateKey: "planner.created.ga" },
       { accountId: "ga-2", recipientKind: "GA", templateKey: "planner.created.ga" },
@@ -221,15 +231,15 @@ describe("publishing an Outbox Event", () => {
       ["ga-1", "notification.created", saved[0]?._id],
       ["ga-2", "notification.created", saved[1]?._id],
     ])
-    expect(delivery.outboxEvent("outbox-1").status).toBe("PUBLISHED")
+    expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
   })
 
   it("saves and pushes nothing for an Audit-only event but still marks it published", async () => {
-    const { delivery, pushHub, publish } = setup([
+    const { outbox, notifications, pushHub, publish } = setup([
       { accountId: "ga-1", role: "GA" },
       { accountId: "gm-1", role: "GM" },
     ])
-    delivery.addOutboxEvent(
+    outbox.addOutboxEvent(
       "outbox-1",
       workflowEvent({
         eventType: "GM_JV_APPROVED",
@@ -242,9 +252,9 @@ describe("publishing an Outbox Event", () => {
 
     await publish("outbox-1")
 
-    expect(delivery.savedNotifications()).toEqual([])
+    expect(notifications.savedNotifications()).toEqual([])
     expect(pushHub.pushes).toEqual([])
-    expect(delivery.outboxEvent("outbox-1").status).toBe("PUBLISHED")
+    expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
   })
 
   describe("a GA estimate confirmation", () => {
@@ -271,23 +281,23 @@ describe("publishing an Outbox Event", () => {
     }
 
     it("is suppressed when the status guard does not match", async () => {
-      const { delivery, pushHub, publish } = setup(users)
-      delivery.addOutboxEvent("outbox-1", gaEstimateConfirmed(["WAITING_GA_ESTIMATE"], ["WAITING_GA_ESTIMATE"]))
+      const { outbox, notifications, pushHub, publish } = setup(users)
+      outbox.addOutboxEvent("outbox-1", gaEstimateConfirmed(["WAITING_GA_ESTIMATE"], ["WAITING_GA_ESTIMATE"]))
 
       await publish("outbox-1")
 
-      expect(delivery.savedNotifications()).toEqual([])
+      expect(notifications.savedNotifications()).toEqual([])
       expect(pushHub.pushes).toEqual([])
-      expect(delivery.outboxEvent("outbox-1").status).toBe("PUBLISHED")
+      expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
     })
 
     it("notifies the creator's supervisor and the GM approvers, each with content for their Recipient Kind", async () => {
-      const { delivery, pushHub, publish } = setup(users)
-      delivery.addOutboxEvent("outbox-1", gaEstimateConfirmed(["WAITING_GA_ESTIMATE"], ["WAITING_JV_APPROVAL"]))
+      const { outbox, notifications, pushHub, publish } = setup(users)
+      outbox.addOutboxEvent("outbox-1", gaEstimateConfirmed(["WAITING_GA_ESTIMATE"], ["WAITING_JV_APPROVAL"]))
 
       await publish("outbox-1")
 
-      const saved = delivery.savedNotifications()
+      const saved = notifications.savedNotifications()
       expect(summarize(saved)).toEqual([
         { accountId: "boss", recipientKind: "SUPERVISOR", templateKey: "ga.estimate.confirmed.supervisor" },
         { accountId: "gm-1", recipientKind: "GM_APPROVER", templateKey: "ga.estimate.confirmed.gm" },
@@ -307,26 +317,26 @@ describe("publishing an Outbox Event", () => {
     ]
 
     it.each(["PUBLISHED", "PROCESSING"] as const)("skips an event that is already %s", async (status) => {
-      const { delivery, pushHub, publish } = setup(gaUsers)
-      delivery.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), status)
+      const { outbox, notifications, pushHub, publish } = setup(gaUsers)
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }), status)
 
       await publish("outbox-1")
 
-      expect(delivery.savedNotifications()).toEqual([])
+      expect(notifications.savedNotifications()).toEqual([])
       expect(pushHub.pushes).toEqual([])
-      expect(delivery.outboxEvent("outbox-1").statusHistory).toEqual([status])
+      expect(outbox.outboxEvent("outbox-1").statusHistory).toEqual([status])
     })
 
     it("marks the event failed and rethrows when recipients cannot be resolved", async () => {
-      const { recipientResolver, delivery, pushHub, publish } = setup(gaUsers)
+      const { recipientResolver, outbox, notifications, pushHub, publish } = setup(gaUsers)
       recipientResolver.failure = new Error("user directory unavailable")
-      delivery.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
 
       await expect(publish("outbox-1")).rejects.toThrow("user directory unavailable")
 
-      expect(delivery.savedNotifications()).toEqual([])
+      expect(notifications.savedNotifications()).toEqual([])
       expect(pushHub.pushes).toEqual([])
-      expect(delivery.outboxEvent("outbox-1")).toMatchObject({
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
         status: "FAILED",
         lastError: "user directory unavailable",
         attempts: 1,
@@ -334,14 +344,14 @@ describe("publishing an Outbox Event", () => {
     })
 
     it("marks the event failed and rethrows when notifications cannot be stored", async () => {
-      const { delivery, pushHub, publish } = setup(gaUsers)
-      delivery.failSaveAfter = 0
-      delivery.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      const { outbox, notifications, pushHub, publish } = setup(gaUsers)
+      notifications.failSaveAfter = 0
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
 
       await expect(publish("outbox-1")).rejects.toThrow("notification store unavailable")
 
       expect(pushHub.pushes).toEqual([])
-      expect(delivery.outboxEvent("outbox-1")).toMatchObject({
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
         status: "FAILED",
         lastError: "notification store unavailable",
         attempts: 1,
@@ -349,15 +359,15 @@ describe("publishing an Outbox Event", () => {
     })
 
     it("on retry after a partial delivery, re-pushes existing notifications without duplicating them", async () => {
-      const { delivery, pushHub, publish } = setup(gaUsers)
-      delivery.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
-      delivery.failSaveAfter = 1
+      const { outbox, notifications, pushHub, publish } = setup(gaUsers)
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+      notifications.failSaveAfter = 1
       await expect(publish("outbox-1")).rejects.toThrow()
-      const [firstAttempt] = delivery.savedNotifications()
+      const [firstAttempt] = notifications.savedNotifications()
 
       await publish("outbox-1")
 
-      const saved = delivery.savedNotifications()
+      const saved = notifications.savedNotifications()
       expect(summarize(saved).map((n) => n.accountId)).toEqual(["ga-1", "ga-2", "ga-3"])
       expect(saved).toContain(firstAttempt)
       expect(firstAttempt?._id).toBe("notification-1")
@@ -366,7 +376,7 @@ describe("publishing an Outbox Event", () => {
         "notification-2",
         "notification-3",
       ])
-      expect(delivery.outboxEvent("outbox-1")).toMatchObject({
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({
         status: "PUBLISHED",
         lastError: "",
         attempts: 2,
@@ -395,12 +405,12 @@ describe("publishing an Outbox Event", () => {
     })
 
     it("gives an account notified for two reasons one notification per Recipient Kind", async () => {
-      const { delivery, pushHub, publish } = setup(users)
-      delivery.addOutboxEvent("outbox-1", fullyApproved)
+      const { outbox, notifications, pushHub, publish } = setup(users)
+      outbox.addOutboxEvent("outbox-1", fullyApproved)
 
       await publish("outbox-1")
 
-      const gaBossNotifications = delivery.savedNotifications().filter((n) => n.accountId === "ga-boss")
+      const gaBossNotifications = notifications.savedNotifications().filter((n) => n.accountId === "ga-boss")
       expect(summarize(gaBossNotifications)).toEqual([
         { accountId: "ga-boss", recipientKind: "GA", templateKey: "planner.fully_approved.ga" },
         { accountId: "ga-boss", recipientKind: "SUPERVISOR", templateKey: "planner.fully_approved.supervisor" },
@@ -409,12 +419,12 @@ describe("publishing an Outbox Event", () => {
     })
 
     it("gives an account reached by two targets with the same Recipient Kind only one notification", async () => {
-      const { delivery, pushHub, publish } = setup(users)
-      delivery.addOutboxEvent("outbox-1", fullyApproved)
+      const { outbox, notifications, pushHub, publish } = setup(users)
+      outbox.addOutboxEvent("outbox-1", fullyApproved)
 
       await publish("outbox-1")
 
-      const creatorNotifications = delivery.savedNotifications().filter((n) => n.accountId === "creator")
+      const creatorNotifications = notifications.savedNotifications().filter((n) => n.accountId === "creator")
       expect(summarize(creatorNotifications)).toEqual([
         { accountId: "creator", recipientKind: "EMPLOYEE", templateKey: "planner.fully_approved.employee" },
       ])
@@ -440,12 +450,12 @@ describe("publishing an Outbox Event", () => {
     }
 
     it("chooses content by the event's metadata as well as the Recipient Kind", async () => {
-      const { delivery, publish } = setup(users)
-      delivery.addOutboxEvent("outbox-1", readyForAnalysis("ALLOWANCE_RESOLVED"))
+      const { outbox, notifications, publish } = setup(users)
+      outbox.addOutboxEvent("outbox-1", readyForAnalysis("ALLOWANCE_RESOLVED"))
 
       await publish("outbox-1")
 
-      expect(summarize(delivery.savedNotifications())).toEqual([
+      expect(summarize(notifications.savedNotifications())).toEqual([
         {
           accountId: "finance-1",
           recipientKind: "FINANCE",
@@ -460,12 +470,12 @@ describe("publishing an Outbox Event", () => {
     })
 
     it("falls back to the general content when the metadata does not match", async () => {
-      const { delivery, publish } = setup(users)
-      delivery.addOutboxEvent("outbox-1", readyForAnalysis("GA_ACTUAL_DONE"))
+      const { outbox, notifications, publish } = setup(users)
+      outbox.addOutboxEvent("outbox-1", readyForAnalysis("GA_ACTUAL_DONE"))
 
       await publish("outbox-1")
 
-      const saved = delivery.savedNotifications()
+      const saved = notifications.savedNotifications()
       expect(summarize(saved)).toEqual([
         { accountId: "finance-1", recipientKind: "FINANCE", templateKey: "planner.ready_for_analysis.finance" },
         { accountId: "planner-1", recipientKind: "PLANNER", templateKey: "planner.ready_for_analysis.planner" },
