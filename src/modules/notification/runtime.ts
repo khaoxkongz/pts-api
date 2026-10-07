@@ -21,8 +21,8 @@ const publishOutboxEvent = createOutboxEventPublisher({
 
 export const workflowEventDispatcher = new WorkflowEventDispatcher(publishOutboxEvent)
 
-// The Relay publishes through the same publisher as the dispatcher's immediate publish. Its retry policy
-// (the attempts cap and the Lease) is set here; main.ts starts it with its interval and stops it.
+// The Relay publishes through the same publisher as the dispatcher's immediate publish. The retry policy is
+// set here (the attempts cap on the Relay, the Lease on the outbox above); main.ts starts it with its interval.
 export const outboxRelay = createOutboxRelay({
   outbox: outboxEvents,
   publish: publishOutboxEvent,

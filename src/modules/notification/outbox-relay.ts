@@ -3,7 +3,7 @@ import { type OutboxEvents } from "./publish-outbox-event.js"
 // Due Outbox Events published per tick (find-due's limit); the rest wait for the next tick.
 const LIMIT_PER_TICK = 100
 
-export interface OutboxRelayDeps {
+interface OutboxRelayDeps {
   outbox: OutboxEvents
   // Publish-by-id: the same lock, publish and mark sequence as the dispatcher's immediate publish.
   publish: (outboxId: string) => Promise<void>
@@ -11,7 +11,7 @@ export interface OutboxRelayDeps {
   maxAttempts: number
 }
 
-export interface RelayResult {
+interface RelayResult {
   // Due ids found this tick; some may have been skipped because another attempt locked them first.
   due: number
   failed: number
@@ -19,13 +19,7 @@ export interface RelayResult {
   skipped: boolean
 }
 
-export interface OutboxRelay {
-  start(intervalMs: number): void
-  stop(): void
-  tick(): Promise<RelayResult>
-}
-
-export function createOutboxRelay({ outbox, publish, maxAttempts }: OutboxRelayDeps): OutboxRelay {
+export function createOutboxRelay({ outbox, publish, maxAttempts }: OutboxRelayDeps) {
   let timer: ReturnType<typeof setInterval> | null = null
   let isRunning = false
 
@@ -59,7 +53,7 @@ export function createOutboxRelay({ outbox, publish, maxAttempts }: OutboxRelayD
   }
 
   return {
-    start(intervalMs) {
+    start(intervalMs: number) {
       if (timer) return
       timer = setInterval(() => {
         tick()
