@@ -1,3 +1,4 @@
+import { type AppPush } from "./app-push.js"
 import { type StoredNotification, toNotificationDto } from "./dto.js"
 import { evaluateRules, type RecipientResolver } from "./evaluate-rules.js"
 import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
@@ -39,6 +40,7 @@ export interface PublishOutboxEventDeps {
   notifications: NotificationStore
   recipients: RecipientResolver
   pushHub: PushHub
+  appPush: AppPush
 }
 
 export function createOutboxEventPublisher(deps: PublishOutboxEventDeps) {
@@ -56,6 +58,10 @@ export function createOutboxEventPublisher(deps: PublishOutboxEventDeps) {
       for (const notification of notifications) {
         deps.pushHub.push(notification.accountId, "notification.created", toNotificationDto(notification))
       }
+
+      // Send never rejects, so a failed App Push can't fail the Outbox Event; notifications already pushed are
+      // skipped, so a retried event sends each App Push at most once (ADR-0004).
+      await deps.appPush.send(notifications)
 
       await deps.outbox.markPublished(outboxId)
     } catch (error) {
