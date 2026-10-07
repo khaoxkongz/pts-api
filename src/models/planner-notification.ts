@@ -14,6 +14,8 @@ const schema = new Schema(
     sourceName: { type: String, default: "" },
     data: { type: Schema.Types.Mixed, default: {} },
     readAt: { type: Date, default: null },
+    // When the App Push was sent; null until OnePlatform reports success. Missing counts as not pushed (ADR-0004).
+    appPushedAt: { type: Date, default: null },
   },
   { timestamps: true }
 )

@@ -1,5 +1,6 @@
 import { PlannerNotification } from "@/models/planner-notification.js"
 
+import { type AppPushStore } from "./app-push.js"
 import { type StoredNotification } from "./dto.js"
 import { type NotificationStore } from "./publish-outbox-event.js"
 import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
@@ -8,7 +9,7 @@ function notificationKey(notification: { accountId: string; recipientKind: strin
   return `${notification.accountId}|${notification.recipientKind}`
 }
 
-export const MongoNotificationStore: NotificationStore = {
+export const MongoNotificationStore: NotificationStore & AppPushStore = {
   async saveNotifications(event: WorkflowEventPayload, resolvedNotifications: ResolvedNotification[]) {
     if (resolvedNotifications.length === 0) {
       return []
@@ -37,6 +38,7 @@ export const MongoNotificationStore: NotificationStore = {
               sourceName: notification.sourceName,
               data: notification.data,
               readAt: null,
+              appPushedAt: null,
             },
           },
           upsert: true,
@@ -53,5 +55,18 @@ export const MongoNotificationStore: NotificationStore = {
     }).lean()
 
     return stored.filter((notification) => wanted.has(notificationKey(notification))) as StoredNotification[]
+  },
+
+  async countUnread(accountId: string) {
+    return await PlannerNotification.countDocuments({ accountId, readAt: null })
+  },
+
+  async markAppPushed(notificationId: string) {
+    // Set only while still empty, so the first successful push's time is kept. A null filter also matches
+    // notifications saved before the field existed.
+    await PlannerNotification.updateOne(
+      { _id: notificationId, appPushedAt: null },
+      { $set: { appPushedAt: new Date() } }
+    )
   },
 }
