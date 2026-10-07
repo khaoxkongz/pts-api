@@ -1,7 +1,7 @@
 import { type AppBadgeMessage, type AppPushMessage, type OnePlatform } from "./app-push.js"
 
 interface OnePlatformClientOptions {
-  // Ends with a slash, like https://platform.one.th/manage/api/
+  // Like https://platform.one.th/manage/api/, with or without the trailing slash
   baseUrl: string
   token: string
   timeoutMs: number
@@ -16,8 +16,11 @@ export class OnePlatformRequestError extends Error {
 
 // The production OnePlatform: a call succeeds only when the HTTP response is ok and the body's status is 200.
 export function createOnePlatformClient({ baseUrl, token, timeoutMs }: OnePlatformClientOptions): OnePlatform {
+  // Without the trailing slash, URL resolution would drop the last segment ("api") of the base.
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+
   async function call(method: "POST" | "PUT", path: string, body: unknown): Promise<void> {
-    const url = new URL(path, baseUrl).toString()
+    const url = new URL(path, base).toString()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
 

@@ -5,6 +5,28 @@ import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 // In-memory fakes for the notification store and OnePlatform ports, shared by the publishing and App Push tests.
 
+/** A notification as the store keeps it, unread and not yet App-pushed, with fields overriding the defaults. */
+function storedNotification(id: string, fields: Partial<StoredNotification>): StoredNotification {
+  return {
+    _id: id,
+    eventId: `event-for-${id}`,
+    eventType: "PLANNER_CREATED",
+    accountId: "",
+    recipientKind: "GA",
+    templateKey: "planner.created.ga",
+    title: "มีแผนงานใหม่ !",
+    body: "",
+    sourceType: "PLANNER",
+    sourceId: "PL-001",
+    sourceName: "Site visit Chiang Mai",
+    data: { documentId: "PL-001" },
+    readAt: null,
+    appPushedAt: null,
+    createdAt: new Date("2026-10-06T00:00:00.000Z"),
+    ...fields,
+  }
+}
+
 export class FakeNotificationStore implements NotificationStore, AppPushStore {
   public readonly notifications = new Map<string, StoredNotification>()
   /** When set, the next save stores this many notifications and then fails. */
@@ -32,25 +54,8 @@ export class FakeNotificationStore implements NotificationStore, AppPushStore {
 
   /** Stores a notification for the account directly, as if an earlier event had saved it. */
   public addNotification(accountId: string, { readAt = null }: Pick<Partial<StoredNotification>, "readAt"> = {}) {
-    const id = `notification-${this.nextId++}`
-    const stored: StoredNotification = {
-      _id: id,
-      eventId: `event-for-${id}`,
-      eventType: "PLANNER_CREATED",
-      accountId,
-      recipientKind: "GA",
-      templateKey: "planner.created.ga",
-      title: "มีแผนงานใหม่ !",
-      body: "",
-      sourceType: "PLANNER",
-      sourceId: "PL-001",
-      sourceName: "Site visit Chiang Mai",
-      data: { documentId: "PL-001" },
-      readAt,
-      appPushedAt: null,
-      createdAt: new Date("2026-10-06T00:00:00.000Z"),
-    }
-    this.notifications.set(id, stored)
+    const stored = storedNotification(`notification-${this.nextId++}`, { accountId, readAt })
+    this.notifications.set(stored._id.toString(), stored)
     return stored
   }
 
@@ -78,23 +83,11 @@ export class FakeNotificationStore implements NotificationStore, AppPushStore {
         continue
       }
 
-      const stored: StoredNotification = {
-        _id: `notification-${this.nextId++}`,
+      const stored = storedNotification(`notification-${this.nextId++}`, {
+        ...notification,
         eventId: event.eventId,
-        eventType: notification.eventType,
-        accountId: notification.accountId,
-        recipientKind: notification.recipientKind,
-        templateKey: notification.templateKey,
-        title: notification.title,
         body: this.storedBody ?? notification.body,
-        sourceType: notification.sourceType,
-        sourceId: notification.sourceId,
-        sourceName: notification.sourceName,
-        data: notification.data,
-        readAt: null,
-        appPushedAt: null,
-        createdAt: new Date("2026-10-06T00:00:00.000Z"),
-      }
+      })
       this.notifications.set(key, stored)
       saved.set(key, stored)
     }

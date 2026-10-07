@@ -1036,10 +1036,10 @@ describe("sending an App Push for each new notification", () => {
     expect(notifications.savedNotifications()[0]?.appPushedAt).toBeNull()
     expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", lastError: "" })
     expect(errorLog).toHaveBeenCalledWith(
-      expect.stringMatching(/pushed notification .* but failed to mark it/),
+      expect.stringMatching(/sent App Push for notification .* but failed to mark it/),
       failure
     )
-    expect(errorLog).not.toHaveBeenCalledWith(expect.stringContaining("failed to push"), expect.anything())
+    expect(errorLog).not.toHaveBeenCalledWith(expect.stringContaining("failed to send App Push"), expect.anything())
     errorLog.mockRestore()
   })
 })

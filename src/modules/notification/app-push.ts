@@ -2,26 +2,29 @@ import pLimit from "p-limit"
 
 import { type StoredNotification } from "./dto.js"
 
+// Which OnePlatform business and mini app a push or badge is for; the same on every call.
+export interface OnePlatformTarget {
+  // Empty, so OnePlatform looks up the user's own company.
+  business_id: string
+  mini_app_id: string
+}
+
 // The body of OnePlatform's push-notify-to-app.
-export interface AppPushMessage {
+export interface AppPushMessage extends OnePlatformTarget {
   // The recipient's ONE ID: the account's accountId.
   to: string
   text: string
   app_path: string
   // The account's full unread count, including the notification being pushed (App Badge).
   badge: number
-  business_id: string
-  mini_app_id: string
 }
 
 // The body of OnePlatform's set-badge.
-export interface AppBadgeMessage {
+export interface AppBadgeMessage extends OnePlatformTarget {
   // The account's ONE ID: its accountId.
   one_id: string
   // The account's full unread count, never a difference (App Badge).
   badge: number
-  business_id: string
-  mini_app_id: string
 }
 
 // OnePlatform's API. Each call rejects unless OnePlatform reports success.
@@ -47,8 +50,7 @@ export interface AppPushDeps {
 }
 
 export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }: AppPushDeps) {
-  // OnePlatform's business and mini app IDs, the same on every call.
-  const app = { business_id: "", mini_app_id: miniAppId }
+  const appTarget: OnePlatformTarget = { business_id: "", mini_app_id: miniAppId }
 
   // Never rejects: a failed push, or a push whose pushed mark fails, is logged (ADR-0004).
   async function pushOne(onePlatform: OnePlatform, notification: StoredNotification) {
@@ -60,10 +62,13 @@ export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }
         text: notification.body ? `${notification.title}\n${notification.body}` : notification.title,
         app_path: `?${link.toString()}`,
         badge: await store.countUnread(notification.accountId),
-        ...app,
+        ...appTarget,
       })
     } catch (error) {
-      console.error(`[app-push] failed to push notification ${id} to account ${notification.accountId}:`, error)
+      console.error(
+        `[app-push] failed to send App Push for notification ${id} to account ${notification.accountId}:`,
+        error
+      )
       return
     }
     try {
@@ -71,7 +76,7 @@ export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }
     } catch (error) {
       // The push went out but isn't recorded, so a retried Outbox Event may push it again.
       console.error(
-        `[app-push] pushed notification ${id} to account ${notification.accountId} but failed to mark it pushed; a retry may push it again:`,
+        `[app-push] sent App Push for notification ${id} to account ${notification.accountId} but failed to mark it pushed; a retry may send it again:`,
         error
       )
     }
@@ -102,7 +107,7 @@ export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }
         await onePlatform.setBadge({
           one_id: accountId,
           badge: await store.countUnread(accountId),
-          ...app,
+          ...appTarget,
         })
       } catch (error) {
         console.error(`[app-push] failed to set the App Badge for account ${accountId}:`, error)
