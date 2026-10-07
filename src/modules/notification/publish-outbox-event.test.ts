@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test"
 
 import { type StoredNotification } from "./dto.js"
 import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
+import { createOutboxRelay } from "./outbox-relay.js"
 import {
   type FindDueOptions,
   type NotificationStore,
@@ -9,7 +10,6 @@ import {
   type PushHub,
   createOutboxEventPublisher,
 } from "./publish-outbox-event.js"
-import { relayDueOutboxEvents } from "./relay-due-outbox-events.js"
 import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
@@ -264,7 +264,8 @@ function setup(users: FixtureUser[], { leaseMs = 5 * 60_000 }: { leaseMs?: numbe
     pushHub,
   })
 
-  const relay = (maxAttempts = 10) => relayDueOutboxEvents({ outbox, publish, maxAttempts, limit: 100 })
+  // A fresh Relay per call, so each call stands for a tick in a separate process.
+  const relay = (maxAttempts = 10) => createOutboxRelay({ outbox, publish, maxAttempts }).tick()
 
   return { recipientResolver, outbox, notifications, pushHub, publish, relay }
 }
@@ -656,6 +657,43 @@ describe("relaying due Outbox Events", () => {
     expect(new Set(notifications.savedNotifications().map((n) => n.eventId))).toEqual(new Set(["event-2", "event-3"]))
     expect(pushHub.pushes).toHaveLength(4)
     errorLog.mockRestore()
+  })
+
+  it("skips a tick while the previous tick on the same Relay is still running", async () => {
+    const { outbox, publish } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+    let releasePublish = () => {}
+    const stalled = new Promise<void>((resolve) => {
+      releasePublish = resolve
+    })
+    const relay = createOutboxRelay({
+      outbox,
+      publish: async (outboxId) => {
+        await stalled
+        await publish(outboxId)
+      },
+      maxAttempts: 10,
+    })
+
+    const first = relay.tick()
+    const second = await relay.tick()
+    releasePublish()
+
+    expect(second).toEqual({ due: 0, failed: 0, skipped: true })
+    expect(await first).toEqual({ due: 1, failed: 0, skipped: false })
+    expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
+  })
+
+  it("rejects a tick whose find-due query fails, and runs the next tick", async () => {
+    const { outbox, publish } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+    const relay = createOutboxRelay({ outbox, publish, maxAttempts: 10 })
+    vi.spyOn(outbox, "findDue").mockRejectedValueOnce(new Error("outbox store unavailable"))
+
+    await expect(relay.tick()).rejects.toThrow("outbox store unavailable")
+
+    expect(await relay.tick()).toEqual({ due: 1, failed: 0, skipped: false })
+    expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
   })
 
   describe("a processing Outbox Event's lease", () => {
