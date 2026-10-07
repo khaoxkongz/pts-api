@@ -23,7 +23,15 @@ A recorded fact that a planner, or a JV on it, changed status, raised by the mod
 _Avoid_: Domain event, action
 
 **Outbox Event**:
-A workflow event waiting to be turned into notifications; saved together with the change itself and published afterwards.
+A workflow event waiting to be turned into notifications; saved right after the change itself, published at once, and retried until it is published or runs out of attempts.
+
+**Relay**:
+The background job that keeps publishing Outbox Events still due (never published, failed, or held by an expired Lease) until each is published or runs out of attempts. It is a safety net behind the immediate publish, not the usual path.
+_Avoid_: Sweep (the participant reject sweep is a different job), retry worker
+
+**Lease**:
+How long one attempt to publish an Outbox Event holds it; once the lease runs out, another attempt may take the event.
+_Avoid_: Lock timeout
 
 **Audit-only**:
 A workflow event type that is recorded but notifies nobody.
