@@ -14,9 +14,20 @@ export interface AppPushMessage {
   mini_app_id: string
 }
 
+// The body of OnePlatform's set-badge.
+export interface AppBadgeMessage {
+  // The account's ONE ID: its accountId.
+  one_id: string
+  // The account's full unread count, never a difference (App Badge).
+  badge: number
+  business_id: string
+  mini_app_id: string
+}
+
 // OnePlatform's API. Each call rejects unless OnePlatform reports success.
 export interface OnePlatform {
   pushNotifyToApp(message: AppPushMessage): Promise<void>
+  setBadge(message: AppBadgeMessage): Promise<void>
 }
 
 export interface AppPushStore {
@@ -73,6 +84,24 @@ export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }
           })
         )
       await Promise.all(tasks)
+    },
+
+    /**
+     * Sets the account's App Badge to its full unread count, never a difference, so a lost or late badge is
+     * corrected by the next push or read. Never rejects: a failure is logged (ADR-0004).
+     */
+    async syncBadge(accountId: string): Promise<void> {
+      if (!onePlatform) return
+      try {
+        await onePlatform.setBadge({
+          one_id: accountId,
+          badge: await store.countUnread(accountId),
+          business_id: "",
+          mini_app_id: miniAppId,
+        })
+      } catch (error) {
+        console.error(`[app-push] failed to set the App Badge for account ${accountId}:`, error)
+      }
     },
   }
 }

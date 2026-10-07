@@ -1,4 +1,4 @@
-import { type AppPushMessage, type OnePlatform } from "./app-push.js"
+import { type AppBadgeMessage, type AppPushMessage, type OnePlatform } from "./app-push.js"
 
 interface OnePlatformClientOptions {
   // Ends with a slash, like https://platform.one.th/manage/api/
@@ -50,6 +50,9 @@ export function createOnePlatformClient({ baseUrl, token, timeoutMs }: OnePlatfo
   return {
     async pushNotifyToApp(message: AppPushMessage) {
       await call("POST", "v2/service/push-notify-to-app", message)
+    },
+    async setBadge(message: AppBadgeMessage) {
+      await call("PUT", "v1/service/set-badge", message)
     },
   }
 }

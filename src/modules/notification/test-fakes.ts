@@ -1,4 +1,4 @@
-import { type AppPushMessage, type OnePlatform } from "./app-push.js"
+import { type AppBadgeMessage, type AppPushMessage, type OnePlatform } from "./app-push.js"
 import { type StoredNotification } from "./dto.js"
 import { type NotificationStore } from "./publish-outbox-event.js"
 import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
@@ -26,6 +26,30 @@ export class FakeNotificationStore implements NotificationStore {
 
   public savedNotifications() {
     return [...this.notifications.values()]
+  }
+
+  /** Stores a notification for the account directly, as if an earlier event had saved it. */
+  public addNotification(accountId: string, { readAt = null }: Pick<Partial<StoredNotification>, "readAt"> = {}) {
+    const id = `notification-${this.nextId++}`
+    const stored: StoredNotification = {
+      _id: id,
+      eventId: `event-for-${id}`,
+      eventType: "PLANNER_CREATED",
+      accountId,
+      recipientKind: "GA",
+      templateKey: "planner.created.ga",
+      title: "มีแผนงานใหม่ !",
+      body: "",
+      sourceType: "PLANNER",
+      sourceId: "PL-001",
+      sourceName: "Site visit Chiang Mai",
+      data: { documentId: "PL-001" },
+      readAt,
+      appPushedAt: null,
+      createdAt: new Date("2026-10-06T00:00:00.000Z"),
+    }
+    this.notifications.set(id, stored)
+    return stored
   }
 
   public async saveNotifications(event: WorkflowEventPayload, resolved: ResolvedNotification[]) {
@@ -92,7 +116,9 @@ export class FakeNotificationStore implements NotificationStore {
 export class FakeOnePlatform implements OnePlatform {
   /** Pushes OnePlatform reported as sent. */
   public readonly pushes: AppPushMessage[] = []
-  /** Accounts whose pushes fail, with the error the adapter would throw. */
+  /** App Badges OnePlatform reported as set. */
+  public readonly badges: AppBadgeMessage[] = []
+  /** Accounts whose pushes and badges fail, with the error the adapter would throw. */
   public readonly failures = new Map<string, Error>()
   /** The most calls that were waiting on OnePlatform at the same time. */
   public maxInFlight = 0
@@ -112,5 +138,14 @@ export class FakeOnePlatform implements OnePlatform {
     } finally {
       this.inFlight -= 1
     }
+  }
+
+  public async setBadge(message: AppBadgeMessage) {
+    await new Promise((resolve) => setTimeout(resolve, 1))
+    const failure = this.failures.get(message.one_id)
+    if (failure) {
+      throw failure
+    }
+    this.badges.push(message)
   }
 }
