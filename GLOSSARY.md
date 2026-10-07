@@ -55,3 +55,11 @@ The notifications of one account, newest first; the source of truth for what tha
 **Live Push**:
 A hint over the stream that a new notification arrived; it may arrive more than once and is never the source of truth.
 _Avoid_: Real-time notification
+
+**App Push**:
+A notification sent to the recipient's OnePlatform app, at most once per notification; never the source of truth.
+_Avoid_: Push notification, Live Push (the stream hint is a different channel)
+
+**App Badge**:
+The unread count shown on the OnePlatform app icon, always set to the account's full unread count, never adjusted by a difference.
+_Avoid_: Badge count, unread badge

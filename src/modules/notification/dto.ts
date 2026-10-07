@@ -14,6 +14,8 @@ export interface StoredNotification {
   sourceName?: string | null
   data?: Partial<ResolvedNotification["data"]> | null
   readAt?: Date | null
+  // When the App Push was sent; empty until OnePlatform reports success (ADR-0004).
+  appPushedAt?: Date | null
   createdAt?: Date | null
 }
 

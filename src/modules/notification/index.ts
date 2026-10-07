@@ -6,7 +6,7 @@ import { session } from "@/plugins/session.js"
 
 import { Inbox } from "./inbox.js"
 import { NotificationSchema } from "./model.js"
-import { pushHub } from "./runtime.js"
+import { appPush, pushHub } from "./runtime.js"
 
 export const notification = new Elysia({ name: "notification-module", prefix: "/notifications" })
   .use(session)
@@ -70,6 +70,9 @@ export const notification = new Elysia({ name: "notification-module", prefix: "/
         return status(404, { success: false, message: "ไม่พบการแจ้งเตือนที่ระบุ" })
       }
 
+      // Not awaited: the App Badge is best effort and must never slow down or fail marking as read (ADR-0004).
+      void appPush.syncBadge(user.accountId)
+
       return status(200, { success: true, message: "ทำเครื่องหมายว่าอ่านแล้วสำเร็จ" })
     },
     {
@@ -90,6 +93,11 @@ export const notification = new Elysia({ name: "notification-module", prefix: "/
       }
 
       const modifiedCount = await Inbox.markAllRead(user.accountId)
+
+      if (modifiedCount > 0) {
+        // Not awaited, like mark-read: the App Badge is best effort (ADR-0004).
+        void appPush.syncBadge(user.accountId)
+      }
 
       return status(200, { success: true, message: `ทำเครื่องหมายว่าอ่านแล้ว ${modifiedCount} รายการ` })
     },

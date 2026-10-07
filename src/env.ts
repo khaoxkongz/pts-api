@@ -31,6 +31,11 @@ const EnvSchema = z.object({
   OUTBOX_RELAY_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(60_000),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(1_000).default(10),
   OUTBOX_LEASE_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(300_000),
+  // Empty means App Push is off: nothing is sent to OnePlatform.
+  ONE_PLATFORM_API_TOKEN: z.string().max(1000).default(""),
+  ONE_PLATFORM_MINI_APP_ID: z.string().max(1000).default(""),
+  ONE_PLATFORM_API_BASE_URL: z.string().url().default("https://platform.one.th/manage/api/"),
+  ONE_PLATFORM_API_TIMEOUT_MS: z.coerce.number().min(1000).max(120_000).default(10_000),
 })
 
 export type Env = z.infer<typeof EnvSchema>

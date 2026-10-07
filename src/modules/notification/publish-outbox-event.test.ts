@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 
+import { createAppPush } from "./app-push.js"
 import { type StoredNotification } from "./dto.js"
 import { type RecipientResolver, type RecipientRole, type ResolvedRecipient } from "./evaluate-rules.js"
 import { createOutboxRelay } from "./outbox-relay.js"
 import {
   type FindDueOptions,
-  type NotificationStore,
   type OutboxEvents,
   type PushHub,
   createOutboxEventPublisher,
 } from "./publish-outbox-event.js"
-import { type RecipientKind, type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
+import { FakeNotificationStore, FakeOnePlatform } from "./test-fakes.js"
+import { type RecipientKind, type WorkflowEventPayload } from "./type.js"
 
 interface FixtureUser {
   accountId: string
@@ -169,75 +170,6 @@ class FakeOutboxEvents implements OutboxEvents {
   }
 }
 
-class FakeNotificationStore implements NotificationStore {
-  public readonly notifications = new Map<string, StoredNotification>()
-  /** When set, the next save stores this many notifications and then fails. */
-  public failSaveAfter: number | null = null
-  /**
-   * When set, the next save stores this many notifications and then never finishes, like a process that died,
-   * unless failStalledSave is called.
-   */
-  public stallSaveAfter: number | null = null
-  private failStalled: ((error: Error) => void) | null = null
-  private nextId = 1
-
-  /** Makes the stalled save fail now, like a publish that outlived its lease and then failed. */
-  public failStalledSave() {
-    this.failStalled?.(new Error("notification store unavailable"))
-  }
-
-  public savedNotifications() {
-    return [...this.notifications.values()]
-  }
-
-  public async saveNotifications(event: WorkflowEventPayload, resolved: ResolvedNotification[]) {
-    const failAfter = this.failSaveAfter
-    const stallAfter = this.stallSaveAfter
-    this.failSaveAfter = null
-    this.stallSaveAfter = null
-    const saved = new Map<string, StoredNotification>()
-
-    for (const [index, notification] of resolved.entries()) {
-      if (failAfter !== null && index >= failAfter) {
-        throw new Error("notification store unavailable")
-      }
-      if (stallAfter !== null && index >= stallAfter) {
-        return new Promise<never>((_, reject) => {
-          this.failStalled = reject
-        })
-      }
-
-      const key = `${event.eventId}|${notification.accountId}|${notification.recipientKind}`
-      const existing = this.notifications.get(key)
-      if (existing) {
-        saved.set(key, existing)
-        continue
-      }
-
-      const stored: StoredNotification = {
-        _id: `notification-${this.nextId++}`,
-        eventId: event.eventId,
-        eventType: notification.eventType,
-        accountId: notification.accountId,
-        recipientKind: notification.recipientKind,
-        templateKey: notification.templateKey,
-        title: notification.title,
-        body: notification.body,
-        sourceType: notification.sourceType,
-        sourceId: notification.sourceId,
-        sourceName: notification.sourceName,
-        data: notification.data,
-        readAt: null,
-        createdAt: new Date("2026-10-06T00:00:00.000Z"),
-      }
-      this.notifications.set(key, stored)
-      saved.set(key, stored)
-    }
-
-    return [...saved.values()]
-  }
-}
-
 interface RecordedPush {
   accountId: string
   event: string
@@ -252,22 +184,33 @@ class RecordingPushHub implements PushHub {
   }
 }
 
-function setup(users: FixtureUser[], { leaseMs = 5 * 60_000 }: { leaseMs?: number } = {}) {
+function setup(
+  users: FixtureUser[],
+  { leaseMs = 5 * 60_000, appPushOn = true }: { leaseMs?: number; appPushOn?: boolean } = {}
+) {
   const recipientResolver = new FakeRecipientResolver(users)
   const outbox = new FakeOutboxEvents(leaseMs)
   const notifications = new FakeNotificationStore()
   const pushHub = new RecordingPushHub()
+  const onePlatform = new FakeOnePlatform()
+  // With App Push off, no OnePlatform is given, as when no token is configured.
+  const appPush = createAppPush({
+    onePlatform: appPushOn ? onePlatform : null,
+    store: notifications,
+    miniAppId: "mini-app-1",
+  })
   const publish = createOutboxEventPublisher({
     outbox,
     notifications,
     recipients: recipientResolver,
     pushHub,
+    appPush,
   })
 
   // A fresh Relay per call, so each call stands for a tick in a separate process.
   const relay = (maxAttempts = 10) => createOutboxRelay({ outbox, publish, maxAttempts }).tick()
 
-  return { recipientResolver, outbox, notifications, pushHub, publish, relay }
+  return { recipientResolver, outbox, notifications, pushHub, onePlatform, publish, relay }
 }
 
 function summarize(notifications: StoredNotification[]) {
@@ -581,6 +524,20 @@ describe("relaying due Outbox Events", () => {
     expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", lastError: "", attempts: 2 })
   })
 
+  it("sends an App Push for each notification it publishes, and none for those already pushed", async () => {
+    const { outbox, notifications, onePlatform, relay } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventId: "event-1" }))
+    vi.spyOn(outbox, "markPublished").mockRejectedValueOnce(new Error("outbox store unavailable"))
+    await relay()
+    expect(onePlatform.pushes.map((p) => p.to).sort()).toEqual(["ga-1", "ga-2"])
+
+    await relay()
+
+    expect(onePlatform.pushes).toHaveLength(2)
+    expect(notifications.savedNotifications().every((n) => n.appPushedAt instanceof Date)).toBe(true)
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", attempts: 2 })
+  })
+
   it("publishes a pending Outbox Event that was never published on the next tick", async () => {
     const { outbox, notifications, pushHub, relay } = setup(gaUsers)
     outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
@@ -892,5 +849,197 @@ describe("relaying due Outbox Events", () => {
       attempts: 1,
       statusHistory: ["PENDING", "PROCESSING", "PUBLISHED"],
     })
+  })
+})
+
+describe("sending an App Push for each new notification", () => {
+  it("pushes a new notification once to the account, with its title and body, a link to the planner and the unread count", async () => {
+    const { outbox, notifications, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED", sourceId: "PL-042" }))
+
+    await publish("outbox-1")
+
+    const [saved] = notifications.savedNotifications()
+    expect(onePlatform.pushes).toEqual([
+      {
+        to: "ga-1",
+        text: "มีแผนงานใหม่ !\nมีการสร้างแผนงานใหม่ Site visit Chiang Mai กรุณากรอกค่าใช้จ่ายประมาณการ",
+        app_path: "?documentId=PL-042&notificationId=notification-1",
+        badge: 1,
+        business_id: "",
+        mini_app_id: "mini-app-1",
+      },
+    ])
+    expect(saved?.appPushedAt).toBeInstanceOf(Date)
+    expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
+  })
+
+  it("encodes the document and notification IDs in the link", async () => {
+    const { outbox, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED", sourceId: "PL-042&x=1" }))
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes.map((p) => p.app_path)).toEqual([
+      "?documentId=PL-042%26x%3D1&notificationId=notification-1",
+    ])
+  })
+
+  it("sends the title alone when the body is empty", async () => {
+    const { outbox, notifications, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
+    notifications.storedBody = ""
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes.map((p) => p.text)).toEqual(["มีแผนงานใหม่ !"])
+  })
+
+  it("pushes every Recipient Kind, each with the account's full unread count as the badge", async () => {
+    const { outbox, notifications, onePlatform, publish } = setup([
+      { accountId: "creator", role: "EMPLOYEE", employeeId: "E-1" },
+      { accountId: "boss", role: "GA", employeeId: "E-9", supervises: ["E-1"] },
+      { accountId: "gm-1", role: "GM" },
+    ])
+    // boss already has two notifications as a GA, one of them read.
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventId: "event-1", eventType: "PLANNER_CREATED" }))
+    outbox.addOutboxEvent("outbox-2", workflowEvent({ eventId: "event-2", eventType: "PLANNER_CREATED" }))
+    await publish("outbox-1")
+    await publish("outbox-2")
+    const [readOne] = notifications.savedNotifications()
+    if (readOne) readOne.readAt = new Date("2026-10-06T11:00:00.000Z")
+    outbox.addOutboxEvent(
+      "outbox-3",
+      workflowEvent({
+        eventId: "event-3",
+        eventType: "GA_ESTIMATE_CONFIRMED",
+        fromStatuses: ["WAITING_GA_ESTIMATE"],
+        toStatuses: ["WAITING_JV_APPROVAL"],
+        metadata: {
+          documentId: "PL-001",
+          plannerName: "Site visit Chiang Mai",
+          creatorEmployeeIds: ["E-1"],
+          gmApproverAccountIds: ["gm-1"],
+        },
+      })
+    )
+
+    await publish("outbox-3")
+
+    const event3Ids = new Set(
+      notifications
+        .savedNotifications()
+        .filter((n) => n.eventId === "event-3")
+        .map((n) => n._id.toString())
+    )
+    const pushes = onePlatform.pushes.filter((p) =>
+      event3Ids.has(new URLSearchParams(p.app_path).get("notificationId") ?? "")
+    )
+    expect(pushes.map((p) => [p.to, p.badge]).sort(([a], [b]) => String(a).localeCompare(String(b)))).toEqual([
+      ["boss", 2],
+      ["gm-1", 1],
+    ])
+  })
+
+  it("doesn't push again when an event whose notifications were already pushed is retried", async () => {
+    const { outbox, onePlatform, publish } = setup([
+      { accountId: "ga-1", role: "GA" },
+      { accountId: "ga-2", role: "GA" },
+    ])
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+    vi.spyOn(outbox, "markPublished").mockRejectedValueOnce(new Error("outbox store unavailable"))
+    await expect(publish("outbox-1")).rejects.toThrow("outbox store unavailable")
+    expect(onePlatform.pushes).toHaveLength(2)
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes).toHaveLength(2)
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", attempts: 2 })
+  })
+
+  it("pushes a role-wide event once per notification, at most 5 at a time", async () => {
+    const gaUsers = Array.from({ length: 12 }, (_, i) => ({ accountId: `ga-${i + 1}`, role: "GA" as const }))
+    const { outbox, notifications, onePlatform, publish } = setup(gaUsers)
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+    await publish("outbox-1")
+
+    const savedIds = notifications.savedNotifications().map((n) => n._id.toString())
+    expect(savedIds).toHaveLength(12)
+    const pushedIds = onePlatform.pushes.map((p) => new URLSearchParams(p.app_path).get("notificationId"))
+    expect(pushedIds).toHaveLength(12)
+    expect(new Set(pushedIds)).toEqual(new Set(savedIds))
+    expect(onePlatform.maxInFlight).toBe(5)
+  })
+
+  it("sends nothing and marks nothing pushed when App Push is off, and still publishes the event", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { outbox, notifications, onePlatform, pushHub, publish } = setup([{ accountId: "ga-1", role: "GA" }], {
+      appPushOn: false,
+    })
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes).toEqual([])
+    expect(notifications.savedNotifications().map((n) => n.appPushedAt)).toEqual([null])
+    expect(pushHub.pushes).toHaveLength(1)
+    expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
+    // Being off is not a failure.
+    expect(errorLog).not.toHaveBeenCalled()
+    errorLog.mockRestore()
+  })
+
+  it.each([
+    ["a thrown error", new Error("fetch failed")],
+    ["a body status other than 200", new Error("OnePlatform push-notify-to-app failed: status 400")],
+  ])(
+    "logs a failed push (%s) with the account and reason, still publishes the event and leaves the notification pushable",
+    async (_, failure) => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+      const { outbox, notifications, onePlatform, publish } = setup([
+        { accountId: "ga-1", role: "GA" },
+        { accountId: "ga-2", role: "GA" },
+        { accountId: "ga-3", role: "GA" },
+      ])
+      onePlatform.failures.set("ga-2", failure)
+      outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+      await publish("outbox-1")
+
+      expect(onePlatform.pushes.map((p) => p.to).sort()).toEqual(["ga-1", "ga-3"])
+      const pushedAccounts = notifications
+        .savedNotifications()
+        .sort((a, b) => a.accountId.localeCompare(b.accountId))
+        .map((n) => [n.accountId, n.appPushedAt instanceof Date])
+      expect(pushedAccounts).toEqual([
+        ["ga-1", true],
+        ["ga-2", false],
+        ["ga-3", true],
+      ])
+      expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", lastError: "" })
+      expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("ga-2"), failure)
+      errorLog.mockRestore()
+    }
+  )
+
+  it("logs a push whose pushed mark fails as pushed but not marked, and still publishes the event", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { outbox, notifications, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
+    const failure = new Error("notification store unavailable")
+    notifications.markAppPushedFailure = failure
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes.map((p) => p.to)).toEqual(["ga-1"])
+    expect(notifications.savedNotifications()[0]?.appPushedAt).toBeNull()
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", lastError: "" })
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringMatching(/sent App Push for notification .* but failed to mark it/),
+      failure
+    )
+    expect(errorLog).not.toHaveBeenCalledWith(expect.stringContaining("failed to send App Push"), expect.anything())
+    errorLog.mockRestore()
   })
 })
