@@ -874,6 +874,17 @@ describe("sending an App Push for each new notification", () => {
     expect(outbox.outboxEvent("outbox-1").status).toBe("PUBLISHED")
   })
 
+  it("encodes the document and notification IDs in the link", async () => {
+    const { outbox, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED", sourceId: "PL-042&x=1" }))
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes.map((p) => p.app_path)).toEqual([
+      "?documentId=PL-042%26x%3D1&notificationId=notification-1",
+    ])
+  })
+
   it("sends the title alone when the body is empty", async () => {
     const { outbox, notifications, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
     notifications.storedBody = ""
@@ -1011,4 +1022,24 @@ describe("sending an App Push for each new notification", () => {
       errorLog.mockRestore()
     }
   )
+
+  it("logs a push whose pushed mark fails as pushed but not marked, and still publishes the event", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { outbox, notifications, onePlatform, publish } = setup([{ accountId: "ga-1", role: "GA" }])
+    const failure = new Error("notification store unavailable")
+    notifications.markAppPushedFailure = failure
+    outbox.addOutboxEvent("outbox-1", workflowEvent({ eventType: "PLANNER_CREATED" }))
+
+    await publish("outbox-1")
+
+    expect(onePlatform.pushes.map((p) => p.to)).toEqual(["ga-1"])
+    expect(notifications.savedNotifications()[0]?.appPushedAt).toBeNull()
+    expect(outbox.outboxEvent("outbox-1")).toMatchObject({ status: "PUBLISHED", lastError: "" })
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringMatching(/pushed notification .* but failed to mark it/),
+      failure
+    )
+    expect(errorLog).not.toHaveBeenCalledWith(expect.stringContaining("failed to push"), expect.anything())
+    errorLog.mockRestore()
+  })
 })

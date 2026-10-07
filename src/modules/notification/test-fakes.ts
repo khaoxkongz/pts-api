@@ -1,11 +1,11 @@
-import { type AppBadgeMessage, type AppPushMessage, type OnePlatform } from "./app-push.js"
+import { type AppBadgeMessage, type AppPushMessage, type AppPushStore, type OnePlatform } from "./app-push.js"
 import { type StoredNotification } from "./dto.js"
 import { type NotificationStore } from "./publish-outbox-event.js"
 import { type ResolvedNotification, type WorkflowEventPayload } from "./type.js"
 
 // In-memory fakes for the notification store and OnePlatform ports, shared by the publishing and App Push tests.
 
-export class FakeNotificationStore implements NotificationStore {
+export class FakeNotificationStore implements NotificationStore, AppPushStore {
   public readonly notifications = new Map<string, StoredNotification>()
   /** When set, the next save stores this many notifications and then fails. */
   public failSaveAfter: number | null = null
@@ -16,6 +16,8 @@ export class FakeNotificationStore implements NotificationStore {
    * unless failStalledSave is called.
    */
   public stallSaveAfter: number | null = null
+  /** When set, marking a notification App-pushed fails with this error. */
+  public markAppPushedFailure: Error | null = null
   private failStalled: ((error: Error) => void) | null = null
   private nextId = 1
 
@@ -106,6 +108,9 @@ export class FakeNotificationStore implements NotificationStore {
 
   // The same rule as the Mongo adapter: the pushed time is set only while it is still empty.
   public async markAppPushed(notificationId: string) {
+    if (this.markAppPushedFailure) {
+      throw this.markAppPushedFailure
+    }
     const notification = this.savedNotifications().find((n) => n._id.toString() === notificationId)
     if (notification && !notification.appPushedAt) {
       notification.appPushedAt = new Date("2026-10-06T10:00:00.000Z")

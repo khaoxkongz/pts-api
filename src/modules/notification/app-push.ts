@@ -47,17 +47,34 @@ export interface AppPushDeps {
 }
 
 export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }: AppPushDeps) {
+  // OnePlatform's business and mini app IDs, the same on every call.
+  const app = { business_id: "", mini_app_id: miniAppId }
+
+  // Never rejects: a failed push, or a push whose pushed mark fails, is logged (ADR-0004).
   async function pushOne(onePlatform: OnePlatform, notification: StoredNotification) {
     const id = notification._id.toString()
-    await onePlatform.pushNotifyToApp({
-      to: notification.accountId,
-      text: notification.body ? `${notification.title}\n${notification.body}` : notification.title,
-      app_path: `?documentId=${notification.sourceId}&notificationId=${id}`,
-      badge: await store.countUnread(notification.accountId),
-      business_id: "",
-      mini_app_id: miniAppId,
-    })
-    await store.markAppPushed(id)
+    try {
+      const link = new URLSearchParams({ documentId: notification.sourceId, notificationId: id })
+      await onePlatform.pushNotifyToApp({
+        to: notification.accountId,
+        text: notification.body ? `${notification.title}\n${notification.body}` : notification.title,
+        app_path: `?${link.toString()}`,
+        badge: await store.countUnread(notification.accountId),
+        ...app,
+      })
+    } catch (error) {
+      console.error(`[app-push] failed to push notification ${id} to account ${notification.accountId}:`, error)
+      return
+    }
+    try {
+      await store.markAppPushed(id)
+    } catch (error) {
+      // The push went out but isn't recorded, so a retried Outbox Event may push it again.
+      console.error(
+        `[app-push] pushed notification ${id} to account ${notification.accountId} but failed to mark it pushed; a retry may push it again:`,
+        error
+      )
+    }
   }
 
   return {
@@ -71,18 +88,7 @@ export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }
       // A retried Outbox Event passes notifications that already existed; those already pushed are skipped.
       const tasks = notifications
         .filter((notification) => !notification.appPushedAt)
-        .map((notification) =>
-          limit(async () => {
-            try {
-              await pushOne(onePlatform, notification)
-            } catch (error) {
-              console.error(
-                `[app-push] failed to push notification ${notification._id.toString()} to account ${notification.accountId}:`,
-                error
-              )
-            }
-          })
-        )
+        .map((notification) => limit(() => pushOne(onePlatform, notification)))
       await Promise.all(tasks)
     },
 
@@ -96,8 +102,7 @@ export function createAppPush({ onePlatform, store, miniAppId, concurrency = 5 }
         await onePlatform.setBadge({
           one_id: accountId,
           badge: await store.countUnread(accountId),
-          business_id: "",
-          mini_app_id: miniAppId,
+          ...app,
         })
       } catch (error) {
         console.error(`[app-push] failed to set the App Badge for account ${accountId}:`, error)
